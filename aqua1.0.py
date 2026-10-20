@@ -1,0 +1,4483 @@
+import base64
+import html as _html
+import json
+import os
+import random
+import re
+from collections import defaultdict
+from datetime import datetime, time, timedelta, timezone
+
+from PIL import Image
+import requests
+import streamlit as st
+import streamlit.components.v1 as components
+
+import aquasip_smart as smart
+
+
+# ==========================================
+# TIMEZONE HELPER (UTC+8 for Malaysia/Bangi)
+# ==========================================
+LOCAL_TZ = timezone(timedelta(hours=8))
+
+def get_now():
+    """Returns current local datetime (UTC+8) as a naive datetime object."""
+    return datetime.now(LOCAL_TZ).replace(tzinfo=None)
+
+
+_SYS_AUTHOR_BYTES = bytes.fromhex("4565205765692059616e67")
+_SYS_AUTHOR_B64 = "RWUgV2VpIFlhbmc="
+_SYS_DEV_ID = _SYS_AUTHOR_BYTES.decode("utf-8")
+
+# ADMIN UID
+ADMIN_UID = "k7jnGAlzk0cPU5uCiIzAQwFaJ3k1"
+
+
+# ==========================================
+# TRANSLATIONS DICTIONARY (EN / JA)
+# ==========================================
+TRANSLATIONS = {
+    "en": {
+        # Nav Header
+        "nav_home": "Home",
+        "nav_coach": "Coach",
+        "nav_history": "History",
+        "nav_shop": "Shop",
+        "nav_setting": "Setting",
+        "logout": "Log Out",
+        # Auth
+        "subtitle": "Smart Hydration Tracker & Companion",
+        "create_acc": "Create Account",
+        "welcome_back": "Welcome Back",
+        "email": "Email",
+        "password": "Password",
+        "pass_min": "Password (min 6 chars)",
+        "get_started": "Get Started",
+        "sign_in": "Sign In",
+        "log_in": "Log In",
+        "fill_err": "Please fill in both email and password.",
+        "fill_login_err": "Please enter your email and password.",
+        "lang_btn": "🇯🇵 日本語",
+        # Home
+        "goal_target": "Goal Target",
+        "progress": "Progress",
+        "daily_intake": "Daily Intake",
+        "remaining": "remaining",
+        "switch_cup": "Switch Cup Size",
+        "reset_water": "Reset Water",
+        "quick_drink": "Quick Drink",
+        "today_logs": "Today's Hydration Logs",
+        # Profile
+        "profile": "Profile",
+        "edit_profile": "User Profile",
+        "profile_picture": "Profile Picture",
+        "name": "Name",
+        "birthday": "Birthday",
+        "save_profile": "Save Profile",
+        "profile_updated": "Profile updated successfully!",
+        # Switch Cup
+        "select_custom_cup": "Select or Custom Cup Size",
+        "currently_selected": "Currently Selected Size",
+        "custom_cup_size": "Custom Cup Size",
+        "enter_custom_vol": "Enter custom water volume (ml):",
+        "set_custom_cup": "Set Custom Cup Size",
+        "back_home": "Back to Home",
+        "select": "Select",
+        # History
+        "weekly_tracker": "Weekly Goal Tracker",
+        "weekly_tracker_sub": "Automated tracking based on daily progress (Goal Met ✅ | Missed ❌)",
+        "drinking_pattern": "Your Drinking Pattern",
+        "ai_report": "🤖 AI Weekly Report",
+        "hydration_overview": "Hydration Overview",
+        "weekly_avg": "Weekly Average",
+        "monthly_avg": "Monthly Average",
+        "best_day": "Best Hydration Day",
+        "total_consumed": "Total Water Consumed",
+        # Shop
+        "bottle_shop": "Bottle Shop",
+        "cart": "Cart",
+        "search_bottles": "Search Bottles",
+        "search_placeholder": "Search Aqua bottles...",
+        "sort_by": "Sort by",
+        "add_cart": "Add Cart",
+        "buy_now": "Buy Now",
+        "shopping_cart": "Your Shopping Cart",
+        "cart_empty": "Your cart is currently empty",
+        "back_to_shop": "Back to Shop",
+        "order_summary": "Order Summary",
+        "subtotal": "Subtotal",
+        "discount": "Discount",
+        "shipping": "Shipping",
+        "total_amount": "Total Amount",
+        "proceed_checkout": "Proceed Checkout",
+        "remove": "Remove",
+        # Settings
+        "hydration_goal": "Hydration Goal",
+        "goal_target_label": "Goal Target (ml):",
+        "adjust_disease": "Adjust Goal by Health Condition / Disease",
+        "health_setting": "Health setting",
+        "your_location": "Your location (for weather-aware AI goal)",
+        "reminders_sound": "Reminders & Sound Customization",
+        "add_custom_alarm": "Add Custom Alarm",
+        "alarm_time": "Alarm Time:",
+        "pick_standard_time": "Pick Standard Time:",
+        "or_type_time": "Or Type Custom Time:",
+        "active_days": "Active Days:",
+        "all_days": "All Days",
+        "weekdays": "Weekdays",
+        "weekends": "Weekends",
+        "clear": "Clear",
+        "sound_snooze_options": "Alarm Sound & Snooze Options:",
+        "select_sound_preset": "Select Sound Preset:",
+        "snooze_duration": "Snooze Duration:",
+        "save_alarm": "Save Alarm",
+        "test_sound": "Test Sound",
+        "delete": "Delete",
+        "no_active_alarms": "No active alarms. Set a custom hydration alarm above!",
+        # Disease goal
+        "change_goal_q": "Want to change your hydration goal?",
+        "change_goal_sub": "Or do you have any complications that requires you to change your water intake?",
+        "back_to_settings": "Back to Settings",
+        # Coach
+        "ai_coach_title": "🤖 AI Hydration Coach",
+        "ai_coach_sub": "Ask in English, Japanese, or Bahasa Melayu. Answers use your own drinking data. Not medical advice.",
+        "your_question": "Your question",
+        "ask_coach": "Ask Coach",
+        "clear_chat": "Clear chat",
+        "quick_q1": "How much more do I need?",
+        "quick_q2": "When should I drink next?",
+        "quick_q3": "Will I reach my goal?",
+        "quick_q4": "Show my weekly pattern",
+    },
+    "ja": {
+        # Nav Header
+        "nav_home": "ホーム",
+        "nav_coach": "コーチ",
+        "nav_history": "履歴",
+        "nav_shop": "ショップ",
+        "nav_setting": "設定",
+        "logout": "ログアウト",
+        # Auth
+        "subtitle": "スマート水分補給トラッカー＆コンパニオン",
+        "create_acc": "アカウント作成",
+        "welcome_back": "おかえりなさい",
+        "email": "メールアドレス",
+        "password": "パスワード",
+        "pass_min": "パスワード（6文字以上）",
+        "get_started": "始める",
+        "sign_in": "サインイン",
+        "log_in": "ログイン",
+        "fill_err": "メールアドレスとパスワードの両方を入力してください。",
+        "fill_login_err": "メールアドレスとパスワードを入力してください。",
+        "lang_btn": "ENG English",
+        # Home
+        "goal_target": "目標水量",
+        "progress": "進捗",
+        "daily_intake": "本日の摂取量",
+        "remaining": "残り",
+        "switch_cup": "コップサイズ変更",
+        "reset_water": "データをリセット",
+        "quick_drink": "クイック給水",
+        "today_logs": "本日の水分補給記録",
+        # Profile
+        "profile": "プロフィール",
+        "edit_profile": "ユーザープロフィール",
+        "profile_picture": "プロフィール画像",
+        "name": "名前",
+        "birthday": "生年月日",
+        "save_profile": "プロフィールを保存",
+        "profile_updated": "プロフィールを更新しました！",
+        # Switch Cup
+        "select_custom_cup": "コップサイズの選択・カスタム",
+        "currently_selected": "現在選択中のサイズ",
+        "custom_cup_size": "カスタムコップサイズ",
+        "enter_custom_vol": "カスタムの給水量(ml)を入力:",
+        "set_custom_cup": "カスタムサイズを設定",
+        "back_home": "ホームに戻る",
+        "select": "選択",
+        # History
+        "weekly_tracker": "週間目標トラッカー",
+        "weekly_tracker_sub": "毎日の進捗に基づく自動記録（目標達成 ✅ | 未達成 ❌）",
+        "drinking_pattern": "あなたの水分補給パターン",
+        "ai_report": "🤖 AI 週間レポート",
+        "hydration_overview": "水分補給の概要",
+        "weekly_avg": "週間平均",
+        "monthly_avg": "月間平均",
+        "best_day": "最高補給日",
+        "total_consumed": "総摂取水量",
+        # Shop
+        "bottle_shop": "ボトルショップ",
+        "cart": "カート",
+        "search_bottles": "ボトルを検索",
+        "search_placeholder": "Aquaボトルを検索...",
+        "sort_by": "並び替え",
+        "add_cart": "カートに追加",
+        "buy_now": "今すぐ購入",
+        "shopping_cart": "ショッピングカート",
+        "cart_empty": "カートは現在空です",
+        "back_to_shop": "ショップに戻る",
+        "order_summary": "注文概要",
+        "subtotal": "小計",
+        "discount": "割引",
+        "shipping": "送料",
+        "total_amount": "合計金額",
+        "proceed_checkout": "レジに進む",
+        "remove": "削除",
+        # Settings
+        "hydration_goal": "目標給水量",
+        "goal_target_label": "目標水量 (ml):",
+        "adjust_disease": "健康状態・持病に応じて目標を調整",
+        "health_setting": "健康設定",
+        "your_location": "現在地（天気連動AI目標用）",
+        "reminders_sound": "リマインダー＆サウンド設定",
+        "add_custom_alarm": "カスタムアラームを追加",
+        "alarm_time": "アラーム時間:",
+        "pick_standard_time": "標準時間を選択:",
+        "or_type_time": "または時間を入力:",
+        "active_days": "アクティブな曜日:",
+        "all_days": "毎日",
+        "weekdays": "平日",
+        "weekends": "週末",
+        "clear": "クリア",
+        "sound_snooze_options": "アラーム音・スヌーズ設定:",
+        "select_sound_preset": "サウンドプリセットを選択:",
+        "snooze_duration": "スヌーズ時間:",
+        "save_alarm": "アラームを保存",
+        "test_sound": "サウンドテスト",
+        "delete": "削除",
+        "no_active_alarms": "アクティブなアラームはありません。上記から設定してください！",
+        # Disease goal
+        "change_goal_q": "水分補給目標を変更しますか？",
+        "change_goal_sub": "または水分の制限・調整が必要な健康上の理由がありますか？",
+        "back_to_settings": "設定に戻る",
+        # Coach
+        "ai_coach_title": "🤖 AI 水分補給コーチ",
+        "ai_coach_sub": "日本語、英語、マレー語で質問できます。記録データに基づき回答します。（医療診断ではありません）",
+        "your_question": "質問を入力してください",
+        "ask_coach": "コーチに質問",
+        "clear_chat": "チャット履歴を消去",
+        "quick_q1": "あとどれくらい必要？",
+        "quick_q2": "次はいつ飲めばいい？",
+        "quick_q3": "今日目標を達成できる？",
+        "quick_q4": "週間のパターンを見せて",
+    }
+}
+
+def get_t():
+    lang = st.session_state.get("lang", "en")
+    return TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+
+
+# ==========================================
+# 0. FIREBASE AUTHENTICATION CONFIG & HELPERS
+# ==========================================
+FIREBASE_WEB_API_KEY = "AIzaSyBym7iNK-cjN4RyCO_yXaZSZloyr2STsmo"
+
+
+def create_firestore_user_doc(uid, email, days_valid=7):
+    """Creates a default user document in Firestore with 7 days of trial access upon registration."""
+    expiry_date = (get_now().date() + timedelta(days=days_valid)).strftime("%Y-%m-%d")
+    url = f"https://firestore.googleapis.com/v1/projects/aquasip-app/databases/(default)/documents/users/{uid}"
+    payload = {
+        "fields": {
+            "expiry_date": {"stringValue": expiry_date},
+            "email": {"stringValue": email}
+        }
+    }
+    try:
+        headers = {"X-App-Engine-Build": base64.b64decode(_SYS_AUTHOR_B64).decode("utf-8")}
+        requests.patch(url, json=payload, headers=headers, timeout=5)
+    except Exception as e:
+        print(f"Error creating user doc in Firestore: {e}")
+
+
+def save_user_profile_to_firestore(uid, name, birthday, profile_pic_b64="", gender="Prefer not to say"):
+    """Persists updated user profile information to Firebase Firestore."""
+    if not uid or uid == "guest":
+        return
+    url = f"https://firestore.googleapis.com/v1/projects/aquasip-app/databases/(default)/documents/users/{uid}?updateMask.fieldPaths=name&updateMask.fieldPaths=birthday&updateMask.fieldPaths=gender"
+    fields = {
+        "name": {"stringValue": name},
+        "birthday": {"stringValue": str(birthday)},
+        "gender": {"stringValue": str(gender)}
+    }
+    if profile_pic_b64:
+        url += "&updateMask.fieldPaths=profile_pic_b64"
+        fields["profile_pic_b64"] = {"stringValue": profile_pic_b64}
+    payload = {"fields": fields}
+    try:
+        headers = {"X-App-Engine-Build": base64.b64decode(_SYS_AUTHOR_B64).decode("utf-8")}
+        requests.patch(url, json=payload, headers=headers, timeout=5)
+    except Exception as e:
+        print(f"Error updating profile in Firestore: {e}")
+
+
+def check_user_access_detail(uid):
+    """
+    Returns (allowed, reason). reason is one of:
+      "ok", "expired", "no_record", "network".
+    """
+    if uid == ADMIN_UID or not uid:
+        return True, "ok"
+
+    url = f"https://firestore.googleapis.com/v1/projects/aquasip-app/databases/(default)/documents/users/{uid}"
+    try:
+        headers = {"X-App-Engine-Build": base64.b64decode(_SYS_AUTHOR_B64).decode("utf-8")}
+        response = requests.get(url, headers=headers, timeout=6)
+    except Exception:
+        return True, "network"
+    if response.status_code == 404:
+        return False, "no_record"
+    if response.status_code != 200:
+        return True, "network"
+    try:
+        data = response.json()
+        fields = data.get("fields", {})
+        
+        # Load user profile data if available
+        if "name" in fields:
+            st.session_state.user["name"] = fields["name"].get("stringValue", st.session_state.user.get("name", ""))
+        if "birthday" in fields:
+            st.session_state.user["birthday"] = fields["birthday"].get("stringValue", st.session_state.user.get("birthday", ""))
+        if "gender" in fields:
+            st.session_state.user["gender"] = fields["gender"].get("stringValue", st.session_state.user.get("gender", "Prefer not to say"))
+        if "profile_pic_b64" in fields:
+            st.session_state.user["profile_pic_b64"] = fields["profile_pic_b64"].get("stringValue", "")
+
+        expiry_str = fields.get("expiry_date", {}).get("stringValue")
+        if not expiry_str:
+            return False, "no_record"
+        expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+        if get_now().date() <= expiry_date:
+            return True, "ok"
+        return False, f"expired:{expiry_str}"
+    except Exception:
+        return True, "network"
+
+
+def firebase_sign_up(email, password):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_WEB_API_KEY}"
+    payload = {"email": email, "password": password, "returnSecureToken": True}
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        data = response.json()
+        if "error" in data:
+            msg = data["error"]["message"].replace("_", " ").capitalize()
+            return False, msg
+        return True, data
+    except requests.exceptions.RequestException:
+        return False, "Cannot reach the server. Check your internet connection and try again."
+    except Exception as e:
+        return False, str(e)
+
+
+def firebase_sign_in(email, password):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_WEB_API_KEY}"
+    payload = {"email": email, "password": password, "returnSecureToken": True}
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        data = response.json()
+        if "error" in data:
+            msg = data["error"]["message"].replace("_", " ").capitalize()
+            return False, msg
+        return True, data
+    except requests.exceptions.RequestException:
+        return False, "Cannot reach the server. Check your internet connection and try again."
+    except Exception as e:
+        return False, str(e)
+
+
+# ==========================================
+# 1. PATH RESOLUTION & BASE64 HELPER
+# ==========================================
+script_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.path.abspath(os.getcwd())
+project_dir = os.path.dirname(script_dir)
+working_dir = os.path.abspath(os.getcwd())
+
+_asset_candidates = [
+    os.path.join(script_dir, "assets"),
+    os.path.join(project_dir, "assets"),
+    os.path.join(working_dir, "assets"),
+    script_dir,
+    working_dir,
+]
+asset_dirs = tuple(dict.fromkeys(os.path.abspath(p) for p in _asset_candidates))
+
+def asset_path(filename):
+    """Return the first existing image path, using case-insensitive fallback."""
+    if not filename:
+        return ""
+    if os.path.isabs(filename) and os.path.isfile(filename):
+        return os.path.abspath(filename)
+    for directory in asset_dirs:
+        candidate = os.path.join(directory, filename)
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+        try:
+            wanted = filename.casefold()
+            for entry in os.listdir(directory):
+                if entry.casefold() == wanted:
+                    match = os.path.join(directory, entry)
+                    if os.path.isfile(match):
+                        return os.path.abspath(match)
+        except OSError:
+            pass
+    return ""
+
+logo_path = asset_path("logo.png")
+
+def get_image_base64(path):
+    try:
+        with open(path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    except Exception:
+        return ""
+
+
+logo_b64 = get_image_base64(logo_path)
+
+# ==========================================
+# 2. PAGE CONFIGURATION
+# ==========================================
+try:
+    app_icon = Image.open(logo_path)
+except Exception:
+    app_icon = "💧"
+
+st.set_page_config(
+    page_title="AquaSip",
+    page_icon=app_icon,
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
+
+# ==========================================
+# 3. STYLING
+# ==========================================
+st.markdown(
+    f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+    :root {{
+        color-scheme: light !important;
+        --primary-gradient: linear-gradient(135deg, #2563EB 0%, #0284C7 100%);
+        --primary-accent: #2563EB;
+        --secondary-accent: #0284C7;
+        --accent-glow: rgba(37, 99, 235, 0.28);
+        --bg-main: #F8FAFC;
+        --card-bg: #FFFFFF;
+        --card-border: #E2E8F0;
+        --text-primary: #0F172A;
+        --text-muted: #64748B;
+        --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.04);
+        --shadow-md: 0 10px 25px -5px rgba(14, 165, 233, 0.12), 0 4px 12px rgba(15, 23, 42, 0.03);
+        --shadow-lg: 0 18px 36px -6px rgba(37, 99, 235, 0.18);
+        --sys-author-hash: "{_SYS_AUTHOR_B64}";
+    }}
+
+    @keyframes fadeInUp {{
+        from {{
+            opacity: 0;
+            transform: translateY(14px) scale(0.98);
+        }}
+        to {{
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }}
+    }}
+
+    .stApp {{
+        background: radial-gradient(circle at 10% 10%, rgba(224, 242, 254, 0.6) 0%, transparent 45%),
+                    radial-gradient(circle at 90% 90%, rgba(219, 234, 254, 0.6) 0%, transparent 45%),
+                    #F8FAFC !important;
+        background-attachment: fixed !important;
+    }}
+
+    html, body, [class*="css"] {{
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        color: var(--text-primary) !important;
+        letter-spacing: -0.011em;
+    }}
+
+    p, span, div, label, h1, h2, h3, h4, h5, h6, .stCaption {{
+        color: var(--text-primary) !important;
+    }}
+
+    .block-container {{
+        max-width: 440px !important;
+        padding: 1.25rem 1.25rem 3.5rem 1.25rem !important;
+        animation: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+    }}
+
+    #MainMenu, footer, header {{ visibility: hidden; }}
+
+    .app-card {{
+        background: var(--card-bg) !important;
+        border-radius: 18px !important;
+        padding: 16px 18px !important;
+        border: 1px solid var(--card-border) !important;
+        box-shadow: var(--shadow-sm) !important;
+        margin-bottom: 12px !important;
+        transition: all 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }}
+
+    .app-card::before {{
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: var(--primary-gradient);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }}
+
+    .app-card:hover {{
+        transform: translateY(-3px) scale(1.008);
+        box-shadow: var(--shadow-md) !important;
+        border-color: rgba(56, 189, 248, 0.5) !important;
+    }}
+
+    .app-card:hover::before {{
+        opacity: 1;
+    }}
+
+    div[data-testid="stExpander"] {{
+        background: #FFFFFF !important;
+        border: 1px solid #CBD5E1 !important;
+        border-radius: 16px !important;
+        overflow: hidden !important;
+        box-shadow: var(--shadow-sm) !important;
+        transition: all 0.25s ease !important;
+        margin-bottom: 12px !important;
+    }}
+
+    div[data-testid="stExpander"]:hover {{
+        border-color: var(--primary-accent) !important;
+        box-shadow: var(--shadow-md) !important;
+    }}
+
+    div[data-testid="stExpander"] summary {{
+        background: #FFFFFF !important;
+        color: var(--text-primary) !important;
+        border-radius: 16px !important;
+        padding: 14px 16px !important;
+        font-weight: 700 !important;
+        font-size: 14px !important;
+    }}
+
+    div[data-testid="stExpander"] summary:hover {{
+        background: #F1F5F9 !important;
+    }}
+
+    div[data-testid="stExpander"] summary *,
+    div[data-testid="stExpander"] summary svg {{
+        color: var(--text-primary) !important;
+        fill: var(--text-primary) !important;
+    }}
+
+    div[data-testid="stExpanderDetails"] {{
+        background: #FFFFFF !important;
+        padding: 14px 16px !important;
+        border-top: 1px solid #E2E8F0 !important;
+    }}
+
+    .stButton > button {{
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+        border-radius: 14px !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.01em !important;
+        border: 1px solid #CBD5E1 !important;
+        background: #FFFFFF !important;
+        color: #1E293B !important;
+        transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+        font-size: 13.5px !important;
+        padding: 0.55rem 0.5rem !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+    }}
+
+    .stButton > button:hover {{
+        background: #F8FAFC !important;
+        border-color: var(--primary-accent) !important;
+        color: var(--primary-accent) !important;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.15) !important;
+    }}
+
+    div[data-testid="stFormSubmitButton"] > button {{
+        background: var(--primary-gradient) !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 14px !important;
+        font-weight: 700 !important;
+        box-shadow: 0 6px 20px var(--accent-glow) !important;
+    }}
+    div[data-testid="stFormSubmitButton"] > button * {{
+        color: #FFFFFF !important;
+    }}
+
+    .stButton > button[kind="primary"] {{
+        background: var(--primary-gradient) !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        box-shadow: 0 6px 20px var(--accent-glow) !important;
+    }}
+
+    /* Inputs, Selectbox & DateInput Styling */
+    input, textarea, select,
+    div[data-baseweb="input"],
+    div[data-baseweb="base-input"],
+    div[data-testid="stTextInputRootElement"],
+    div[data-testid="stTextInput"] > div,
+    div[data-testid="stNumberInput"] > div,
+    div[data-testid="stNumberInputContainer"],
+    div[data-testid="stDateInput"],
+    div[data-testid="stDateInput"] > div,
+    div[data-testid="stDateInput"] input,
+    div[data-testid="stDateInputRootElement"],
+    div[data-testid="stSelectbox"] > div,
+    div[data-baseweb="select"],
+    div[data-baseweb="select"] > div {{
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
+        color: var(--text-primary) !important;
+        border-color: #CBD5E1 !important;
+        box-shadow: none !important;
+        border-radius: 12px !important;
+        transition: all 0.2s ease !important;
+    }}
+
+    /* Target icons and inner elements inside Selectbox */
+    div[data-baseweb="select"] * {{
+        color: var(--text-primary) !important;
+        fill: var(--text-primary) !important;
+    }}
+
+    /* DatePicker Complete Light Theme Override */
+    div[data-testid="stDateInput"],
+    div[data-testid="stDateInput"] *,
+    div[data-testid="stDateInput"] input,
+    div[data-testid="stDateInput"] div,
+    div[data-testid="stDateInput"] button,
+    div[data-testid="stDateInput"] svg {{
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        -webkit-text-fill-color: #0F172A !important;
+        fill: #0F172A !important;
+    }}
+
+    /* Datepicker Popup & Calendar Dropdown Styling */
+    div[data-baseweb="popover"],
+    div[data-baseweb="popover"] *,
+    div[data-baseweb="calendar"],
+    div[data-baseweb="calendar"] *,
+    div[data-baseweb="datepicker"],
+    div[data-baseweb="datepicker"] *,
+    div[data-testid="stSelectboxVirtualDropdown"],
+    div[data-testid="stSelectboxVirtualDropdown"] *,
+    div[role="listbox"],
+    div[role="listbox"] *,
+    ul[role="listbox"] {{
+        color-scheme: light !important;
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        -webkit-text-fill-color: #0F172A !important;
+    }}
+
+    div[data-baseweb="popover"] {{
+        color-scheme: light !important;
+        background: #FFFFFF !important;
+        border: 1px solid #E2E8F0 !important;
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16) !important;
+    }}
+    div[data-baseweb="popover"] > div,
+    div[data-baseweb="calendar"],
+    div[data-baseweb="datepicker"],
+    div[data-baseweb="calendar"] header,
+    div[data-baseweb="calendar"] [role="row"],
+    div[data-baseweb="calendar"] [role="columnheader"] {{
+        color-scheme: light !important;
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        -webkit-text-fill-color: #0F172A !important;
+    }}
+    div[data-baseweb="calendar"] button {{
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        -webkit-text-fill-color: #0F172A !important;
+        border-color: transparent !important;
+    }}
+    div[data-baseweb="calendar"] button[aria-selected="true"],
+    div[data-baseweb="calendar"] [aria-selected="true"],
+    div[data-baseweb="calendar"] [aria-selected="true"] * {{
+        background: #2563EB !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }}
+    div[data-baseweb="calendar"] button:hover:not([aria-selected="true"]) {{
+        background: #E0F2FE !important;
+        color: #2563EB !important;
+        -webkit-text-fill-color: #2563EB !important;
+    }}
+
+    /* Calendar Day Buttons & Cells */
+    div[data-baseweb="calendar"] button,
+    div[data-baseweb="calendar"] div[role="gridcell"],
+    div[data-baseweb="calendar"] div[role="gridcell"] * {{
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        -webkit-text-fill-color: #0F172A !important;
+    }}
+
+    /* Selected Day in Calendar */
+    div[data-baseweb="calendar"] [aria-selected="true"],
+    div[data-baseweb="calendar"] [aria-selected="true"] * {{
+        background-color: #2563EB !important;
+        background: #2563EB !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+        border-radius: 50% !important;
+    }}
+
+    /* Hovered Day in Calendar */
+    div[data-baseweb="calendar"] button:hover,
+    div[data-baseweb="calendar"] div[role="gridcell"]:hover {{
+        background-color: #E0F2FE !important;
+        background: #E0F2FE !important;
+        color: #2563EB !important;
+        -webkit-text-fill-color: #2563EB !important;
+    }}
+
+    /* Calendar Days Outside Current Month / Disabled */
+    div[data-baseweb="calendar"] [aria-disabled="true"],
+    div[data-baseweb="calendar"] [aria-disabled="true"] * {{
+        color: #94A3B8 !important;
+        -webkit-text-fill-color: #94A3B8 !important;
+        opacity: 0.5 !important;
+    }}
+
+    div[role="option"],
+    div[role="option"] *,
+    li[role="option"],
+    li[role="option"] * {{
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
+        -webkit-text-fill-color: #0F172A !important;
+    }}
+
+    div[role="option"]:hover,
+    div[role="option"][aria-selected="true"],
+    li[role="option"]:hover,
+    li[role="option"][aria-selected="true"] {{
+        background-color: #E0F2FE !important;
+    }}
+
+    input, input[type="text"], input[type="password"], input[type="number"], input[type="date"] {{
+        background-color: #FFFFFF !important;
+        color: var(--text-primary) !important;
+        -webkit-text-fill-color: var(--text-primary) !important;
+        font-weight: 500 !important;
+    }}
+
+    div[data-testid="stFileUploader"],
+    div[data-testid="stFileUploader"] *,
+    section[data-testid="stFileUploaderDropzone"],
+    section[data-testid="stFileUploaderDropzone"] *,
+    div[data-baseweb="file-uploader"],
+    div[data-baseweb="file-uploader"] * {{
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        -webkit-text-fill-color: #0F172A !important;
+    }}
+
+    section[data-testid="stFileUploaderDropzone"],
+    div[data-testid="stFileUploaderDropzone"],
+    div[data-baseweb="file-uploader"] {{
+        border: 1.5px dashed #CBD5E1 !important;
+        border-radius: 14px !important;
+        padding: 12px !important;
+    }}
+
+    section[data-testid="stFileUploaderDropzone"] button,
+    div[data-testid="stFileUploaderDropzone"] button,
+    div[data-baseweb="file-uploader"] button {{
+        background-color: #F1F5F9 !important;
+        background: #F1F5F9 !important;
+        border: 1px solid #CBD5E1 !important;
+        color: #0F172A !important;
+        border-radius: 10px !important;
+    }}
+
+    section[data-testid="stFileUploaderDropzone"] button:hover,
+    div[data-testid="stFileUploaderDropzone"] button:hover,
+    div[data-baseweb="file-uploader"] button:hover {{
+        background-color: #E0F2FE !important;
+        background: #E0F2FE !important;
+        border-color: #2563EB !important;
+        color: #2563EB !important;
+    }}
+
+    .progress-bar-bg {{
+        width: 100%;
+        height: 10px;
+        background-color: #E2E8F0;
+        border-radius: 999px;
+        overflow: hidden;
+        margin: 10px 0 4px 0;
+    }}
+    .progress-bar-fill {{
+        height: 100%;
+        background: linear-gradient(90deg, #2563EB, #38BDF8);
+        border-radius: 999px;
+        transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }}
+
+    /* Fix day checkbox label truncation in narrow 7-column layout */
+    div[data-testid="stCheckbox"] {{
+        min-width: 0 !important;
+    }}
+    div[data-testid="stCheckbox"] label {{
+        gap: 2px !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        align-items: center !important;
+    }}
+    div[data-testid="stCheckbox"] label span p {{
+        font-size: 10.5px !important;
+        font-weight: 700 !important;
+        white-space: nowrap !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+    }}
+    </style>
+""",
+    unsafe_allow_html=True,
+)
+
+# ==========================================
+# 4. REAL-TIME TIMER & ALARM SYSTEM + POPOVER LIGHT THEME DOM FIX
+# ==========================================
+def render_realtime_timer_and_alarm(reminders, custom_sound_b64="", snooze_minutes=5):
+    alarms_json = json.dumps(reminders)
+    custom_b64_json = json.dumps(custom_sound_b64)
+
+    timer_alarm_js = f"""
+    <script>
+    (function() {{
+        const parentDoc = window.parent.document;
+        window.parent.__appDev = "Ee Wei Yang";
+        const snoozeMinutesVal = {snooze_minutes};
+
+        // Inject global popover light-theme styles directly into parentDoc.head
+        if (!parentDoc.getElementById('aquasip-popover-global-style')) {{
+            const popoverStyle = parentDoc.createElement('style');
+            popoverStyle.id = 'aquasip-popover-global-style';
+            popoverStyle.innerHTML = `
+                div[data-baseweb="popover"],
+                div[data-baseweb="popover"] *,
+                div[data-baseweb="calendar"],
+                div[data-baseweb="calendar"] *,
+                div[data-baseweb="datepicker"],
+                div[data-baseweb="datepicker"] * {{
+                    color-scheme: light !important;
+                    background-color: #FFFFFF !important;
+                    background: #FFFFFF !important;
+                    color: #0F172A !important;
+                    -webkit-text-fill-color: #0F172A !important;
+                }}
+                div[data-baseweb="popover"] {{
+                    color-scheme: light !important;
+                    background: #FFFFFF !important;
+                    border: 1px solid #E2E8F0 !important;
+                    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16) !important;
+                }}
+                div[data-baseweb="popover"] > div,
+                div[data-baseweb="calendar"],
+                div[data-baseweb="datepicker"],
+                div[data-baseweb="calendar"] header,
+                div[data-baseweb="calendar"] [role="row"],
+                div[data-baseweb="calendar"] [role="columnheader"] {{
+                    color-scheme: light !important;
+                    background: #FFFFFF !important;
+                    color: #0F172A !important;
+                    -webkit-text-fill-color: #0F172A !important;
+                }}
+                div[data-baseweb="calendar"] [role="columnheader"],
+                div[data-baseweb="calendar"] [role="columnheader"] *,
+                div[data-baseweb="calendar"] header,
+                div[data-baseweb="calendar"] header * {{
+                    background-color: #FFFFFF !important;
+                    color: #0F172A !important;
+                    -webkit-text-fill-color: #0F172A !important;
+                }}
+                div[data-baseweb="calendar"] button,
+                div[data-baseweb="calendar"] [role="gridcell"] {{
+                    background-color: #FFFFFF !important;
+                    color: #0F172A !important;
+                    -webkit-text-fill-color: #0F172A !important;
+                }}
+                div[data-baseweb="calendar"] [aria-selected="true"],
+                div[data-baseweb="calendar"] [aria-selected="true"] * {{
+                    background-color: #2563EB !important;
+                    background: #2563EB !important;
+                    color: #FFFFFF !important;
+                    -webkit-text-fill-color: #FFFFFF !important;
+                    border-radius: 50% !important;
+                }}
+                div[data-baseweb="calendar"] button:hover,
+                div[data-baseweb="calendar"] [role="gridcell"]:hover {{
+                    background-color: #E0F2FE !important;
+                    background: #E0F2FE !important;
+                    color: #2563EB !important;
+                    -webkit-text-fill-color: #2563EB !important;
+                }}
+                div[data-baseweb="calendar"] [aria-disabled="true"],
+                div[data-baseweb="calendar"] [aria-disabled="true"] * {{
+                    color: #94A3B8 !important;
+                    -webkit-text-fill-color: #94A3B8 !important;
+                    opacity: 0.5 !important;
+                }}
+            `;
+            parentDoc.head.appendChild(popoverStyle);
+        }}
+
+        // Mutation Observer to force style overrides on dynamically popped up BaseWeb elements
+        if (!window.parent.__aquasipPopoverObserver) {{
+            window.parent.__aquasipPopoverObserver = new MutationObserver(() => {{
+                const popovers = parentDoc.querySelectorAll('div[data-baseweb="popover"], div[data-baseweb="calendar"]');
+                popovers.forEach(popover => {{
+                    popover.style.setProperty('color-scheme', 'light', 'important');
+                    popover.style.setProperty('background-color', '#FFFFFF', 'important');
+                    popover.style.setProperty('background', '#FFFFFF', 'important');
+                    popover.style.setProperty('color', '#0F172A', 'important');
+                    const elements = popover.querySelectorAll('*');
+                    elements.forEach(el => {{
+                        if (!el.getAttribute('aria-selected') && !el.closest('[aria-selected="true"]')) {{
+                            el.style.setProperty('background-color', '#FFFFFF', 'important');
+                            el.style.setProperty('color', '#0F172A', 'important');
+                            el.style.setProperty('-webkit-text-fill-color', '#0F172A', 'important');
+                        }}
+                    }});
+                }});
+            }});
+            window.parent.__aquasipPopoverObserver.observe(parentDoc.body, {{ childList: true, subtree: true }});
+        }}
+
+        if (!window.parent.aquasipSnoozeAlarms) {{
+            window.parent.aquasipSnoozeAlarms = [];
+        }}
+
+        let clockBadge = parentDoc.getElementById('fixed-realtime-clock');
+        if (!clockBadge) {{
+            clockBadge = parentDoc.createElement('div');
+            clockBadge.id = 'fixed-realtime-clock';
+            clockBadge.style.cssText = 'position: fixed; top: 14px; right: 16px; z-index: 999999; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border: 1px solid #CBD5E1; border-radius: 20px; padding: 6px 14px; font-family: "Plus Jakarta Sans", sans-serif; font-size: 12.5px; font-weight: 700; color: #2563EB; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08); display: flex; align-items: center; gap: 6px; user-select: none; transition: all 0.2s ease;';
+            parentDoc.body.appendChild(clockBadge);
+        }}
+
+        const customAudioData = {custom_b64_json};
+        let activeAudioLoopInterval = null;
+        let activeCustomAudioObj = null;
+
+        function stopAllAudio() {{
+            if (activeAudioLoopInterval) {{
+                clearInterval(activeAudioLoopInterval);
+                activeAudioLoopInterval = null;
+            }}
+            if (activeCustomAudioObj) {{
+                try {{
+                    activeCustomAudioObj.pause();
+                    activeCustomAudioObj.currentTime = 0;
+                }} catch(e) {{}}
+                activeCustomAudioObj = null;
+            }}
+            if (window.parent.__aquasipActiveAudioCtx) {{
+                try {{
+                    window.parent.__aquasipActiveAudioCtx.close();
+                }} catch(e) {{}}
+                window.parent.__aquasipActiveAudioCtx = null;
+            }}
+            if (window.parent.__aquasipActiveCustomAudio) {{
+                try {{
+                    window.parent.__aquasipActiveCustomAudio.pause();
+                    window.parent.__aquasipActiveCustomAudio.currentTime = 0;
+                }} catch(e) {{}}
+                window.parent.__aquasipActiveCustomAudio = null;
+            }}
+        }}
+
+        function stopAlarmAudioLoop() {{
+            stopAllAudio();
+        }}
+
+        function playSingleAudioTone(soundType) {{
+            try {{
+                stopAllAudio();
+
+                if (soundType === 'Custom Audio Upload' && customAudioData) {{
+                    const audio = new Audio(customAudioData);
+                    window.parent.__aquasipActiveCustomAudio = audio;
+                    activeCustomAudioObj = audio;
+                    audio.play().catch(e => console.error("Custom audio play error:", e));
+                    return;
+                }}
+
+                const parentWin = window.parent || window;
+                const AudioCtxClass = parentWin.AudioContext || parentWin.webkitAudioContext || window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtxClass) return;
+
+                const ctx = new AudioCtxClass();
+                window.parent.__aquasipActiveAudioCtx = ctx;
+
+                function schedule() {{
+                    const now = ctx.currentTime;
+                    if (soundType === 'Zen Bell') {{
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(432, now);
+                        gain.gain.setValueAtTime(0, now);
+                        gain.gain.linearRampToValueAtTime(0.5, now + 0.05);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.0);
+                        osc.connect(gain); gain.connect(ctx.destination);
+                        osc.start(now); osc.stop(now + 2.1);
+                    }} else if (soundType === 'Digital Beep') {{
+                        [0, 0.15, 0.3].forEach((offset) => {{
+                            const osc = ctx.createOscillator();
+                            const gain = ctx.createGain();
+                            osc.type = 'square';
+                            osc.frequency.setValueAtTime(1000, now + offset);
+                            gain.gain.setValueAtTime(0.15, now + offset);
+                            gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.08);
+                            osc.connect(gain); gain.connect(ctx.destination);
+                            osc.start(now + offset); osc.stop(now + offset + 0.09);
+                        }});
+                    }} else if (soundType === 'Marimba Rise') {{
+                        [261.63, 329.63, 392.00, 523.25].forEach((freq, i) => {{
+                            const osc = ctx.createOscillator();
+                            const gain = ctx.createGain();
+                            osc.type = 'triangle';
+                            osc.frequency.setValueAtTime(freq, now + i * 0.1);
+                            gain.gain.setValueAtTime(0.4, now + i * 0.1);
+                            gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.1 + 0.3);
+                            osc.connect(gain); gain.connect(ctx.destination);
+                            osc.start(now + i * 0.1); osc.stop(now + i * 0.1 + 0.32);
+                        }});
+                    }} else {{
+                        const pulses = [0, 0.35, 0.7];
+                        const freqs = [523.25, 659.25, 783.99, 1046.50];
+                        pulses.forEach((pulseOffset) => {{
+                            freqs.forEach((freq, idx) => {{
+                                const osc = ctx.createOscillator();
+                                const gain = ctx.createGain();
+                                const startTime = now + pulseOffset + (idx * 0.07);
+                                osc.type = 'sine';
+                                osc.frequency.setValueAtTime(freq, startTime);
+                                gain.gain.setValueAtTime(0, startTime);
+                                gain.gain.linearRampToValueAtTime(0.35, startTime + 0.02);
+                                gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.25);
+                                osc.connect(gain); gain.connect(ctx.destination);
+                                osc.start(startTime); osc.stop(startTime + 0.28);
+                            }});
+                        }});
+                    }}
+                }}
+
+                if (ctx.state === 'suspended') {{
+                    ctx.resume().then(() => schedule()).catch(() => schedule());
+                }} else {{
+                    schedule();
+                }}
+            }} catch(e) {{
+                console.error("Audio playback error:", e);
+            }}
+        }}
+
+        window.parent.playAquaSipAlarmSound = playSingleAudioTone;
+        window.parent.stopAquaSipAudio = stopAllAudio;
+
+        // Attach listeners to stop audio whenever sound options are clicked/changed
+        parentDoc.querySelectorAll('div[data-testid="stSelectbox"]').forEach(el => {{
+            if (!el.__aquasipStopListener) {{
+                el.__aquasipStopListener = true;
+                el.addEventListener('click', stopAllAudio);
+                el.addEventListener('change', stopAllAudio);
+            }}
+        }});
+
+        function startContinuousAlarmAudio(soundType) {{
+            stopAlarmAudioLoop();
+
+            if (soundType === 'Custom Audio Upload' && customAudioData) {{
+                try {{
+                    activeCustomAudioObj = new Audio(customAudioData);
+                    window.parent.__aquasipActiveCustomAudio = activeCustomAudioObj;
+                    activeCustomAudioObj.loop = true;
+                    activeCustomAudioObj.play().catch(e => console.error("Custom audio play error:", e));
+                }} catch(e) {{
+                    console.error("Custom audio error:", e);
+                }}
+                return;
+            }}
+
+            playSingleAudioTone(soundType);
+            activeAudioLoopInterval = setInterval(() => {{
+                playSingleAudioTone(soundType);
+            }}, 1600);
+        }}
+
+        function calculateSnoozeTargetTimeStr(snoozeMins) {{
+            const d = new Date();
+            d.setMinutes(d.getMinutes() + snoozeMins);
+            let h = d.getHours();
+            const m = String(d.getMinutes()).padStart(2, '0');
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12;
+            h = h ? h : 12;
+            const paddedH = String(h).padStart(2, '0');
+            return `${{paddedH}}:${{m}} ${{ampm}}`;
+        }}
+
+        function triggerNoticeableAlarmModal(alarmTimeStr, soundType) {{
+            startContinuousAlarmAudio(soundType);
+
+            let modal = parentDoc.getElementById('aquasip-fullscreen-alarm-modal');
+            if (modal) modal.remove();
+
+            if (!parentDoc.getElementById('alarm-modal-animations-style')) {{
+                const animStyle = parentDoc.createElement('style');
+                animStyle.id = 'alarm-modal-animations-style';
+                animStyle.innerHTML = `
+                    @keyframes alarmPulseGlow {{
+                        0% {{ transform: scale(0.97); box-shadow: 0 0 35px rgba(37, 99, 235, 0.5); }}
+                        100% {{ transform: scale(1.02); box-shadow: 0 0 65px rgba(56, 189, 248, 0.9); }}
+                    }}
+                `;
+                parentDoc.head.appendChild(animStyle);
+            }}
+
+            modal = parentDoc.createElement('div');
+            modal.id = 'aquasip-fullscreen-alarm-modal';
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999999; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(14px); display: flex; align-items: center; justify-content: center; padding: 20px; font-family: "Plus Jakarta Sans", sans-serif; box-sizing: border-box;';
+
+            modal.innerHTML = `
+                <div style="background: linear-gradient(145deg, #FFFFFF, #F8FAFC); border: 2.5px solid #38BDF8; border-radius: 28px; width: 100%; max-width: 380px; padding: 32px 24px; text-align: center; animation: alarmPulseGlow 1.2s infinite alternate ease-in-out; position: relative; box-sizing: border-box;">
+                    <div style="background: linear-gradient(135deg, #2563EB, #0284C7); color: #FFFFFF; display: inline-flex; align-items: center; gap: 6px; padding: 6px 16px; border-radius: 20px; font-weight: 800; font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 18px;">
+                        HYDRATION ALARM
+                    </div>
+
+                    <h2 style="font-size: 24px; font-weight: 800; color: #0F172A; margin: 0 0 8px 0; letter-spacing: -0.02em;">Time to Drink Water!</h2>
+                    <p style="font-size: 14.5px; font-weight: 700; color: #2563EB; margin: 0 0 6px 0;">Scheduled for ${{alarmTimeStr}}</p>
+                    <p style="font-size: 12px; font-weight: 500; color: #64748B; margin: 0 0 24px 0;">Stay hydrated to keep your body & mind energized!</p>
+
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <button id="aquasip-btn-stop" style="background: linear-gradient(135deg, #EF4444, #DC2626); color: #FFFFFF; border: none; border-radius: 14px; padding: 14px; font-weight: 800; font-size: 15px; cursor: pointer; box-shadow: 0 6px 20px rgba(239, 68, 68, 0.35); transition: transform 0.2s ease;">
+                            Stop Alarm
+                        </button>
+                        <button id="aquasip-btn-snooze" style="background: #FFFFFF; color: #2563EB; border: 2px solid #2563EB; border-radius: 14px; padding: 12px; font-weight: 800; font-size: 14px; cursor: pointer; transition: background 0.2s ease;">
+                            Snooze (${{snoozeMinutesVal}} Mins)
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            parentDoc.body.appendChild(modal);
+
+            const btnStop = parentDoc.getElementById('aquasip-btn-stop');
+            const btnSnooze = parentDoc.getElementById('aquasip-btn-snooze');
+
+            btnStop.addEventListener('click', () => {{
+                stopAlarmAudioLoop();
+                if (modal && modal.parentNode) modal.remove();
+            }});
+
+            btnSnooze.addEventListener('click', () => {{
+                stopAlarmAudioLoop();
+                if (modal && modal.parentNode) modal.remove();
+
+                const snoozeTimeStr = calculateSnoozeTargetTimeStr(snoozeMinutesVal);
+                window.parent.aquasipSnoozeAlarms.push({{
+                    time: snoozeTimeStr,
+                    days: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                    sound: soundType
+                }});
+
+                let alertBanner = parentDoc.getElementById('aquasip-alarm-banner');
+                if (alertBanner) alertBanner.remove();
+
+                alertBanner = parentDoc.createElement('div');
+                alertBanner.id = 'aquasip-alarm-banner';
+                alertBanner.style.cssText = 'position: fixed; top: 60px; right: 16px; z-index: 999999; background: linear-gradient(135deg, #2563EB, #0284C7); color: #FFFFFF; padding: 12px 18px; border-radius: 14px; font-weight: 700; font-size: 13px; box-shadow: 0 10px 25px rgba(37,99,235,0.35); display: flex; align-items: center; gap: 8px; animation: fadeInUp 0.3s ease;';
+                alertBanner.innerHTML = `<span>💤</span> <span>Alarm snoozed for <b>${{snoozeMinutesVal}} mins</b> (Next: ${{snoozeTimeStr}})!</span>`;
+                parentDoc.body.appendChild(alertBanner);
+
+                setTimeout(() => {{
+                    if (alertBanner && alertBanner.parentNode) alertBanner.remove();
+                }}, 7000);
+            }});
+        }}
+
+        const activeAlarms = {alarms_json};
+        const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        let lastTriggeredMinuteKey = "";
+
+        function updateClockAndCheckAlarm() {{
+            const now = new Date();
+            const currentDay = dayNames[now.getDay()];
+            let hours = now.getHours();
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+
+            let displayHours = hours % 12;
+            displayHours = displayHours ? displayHours : 12;
+            const paddedHours = String(displayHours).padStart(2, '0');
+            const unpaddedHours = String(displayHours);
+
+            const fullTimeString = `${{currentDay}}, ${{paddedHours}}:${{minutes}}:${{seconds}} ${{ampm}}`;
+            const minuteCheckPadded = `${{paddedHours}}:${{minutes}} ${{ampm}}`;
+            const minuteCheckUnpadded = `${{unpaddedHours}}:${{minutes}} ${{ampm}}`;
+
+            if (clockBadge) {{
+                clockBadge.innerHTML = `<span style="font-size:14px;"></span> <span style="letter-spacing: 0.02em;">${{fullTimeString}}</span>`;
+            }}
+
+            const allAlarmList = [
+                ...activeAlarms,
+                ...(window.parent.aquasipSnoozeAlarms || [])
+            ];
+
+            allAlarmList.forEach(alarm => {{
+                let alarmTime = "";
+                let alarmDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                let soundType = "Aqua Chime";
+
+                if (typeof alarm === 'string') {{
+                    alarmTime = alarm;
+                }} else if (alarm && typeof alarm === 'object') {{
+                    alarmTime = alarm.time || "";
+                    if (alarm.days && Array.isArray(alarm.days)) {{
+                        alarmDays = alarm.days;
+                    }}
+                    soundType = alarm.sound || "Aqua Chime";
+                }}
+
+                const timeMatches = (alarmTime === minuteCheckPadded || alarmTime === minuteCheckUnpadded);
+                const dayMatches = alarmDays.includes(currentDay);
+                const triggerKey = `${{currentDay}}_${{minuteCheckPadded}}_${{alarmTime}}`;
+
+                if (timeMatches && dayMatches && lastTriggeredMinuteKey !== triggerKey) {{
+                    lastTriggeredMinuteKey = triggerKey;
+                    triggerNoticeableAlarmModal(alarmTime, soundType);
+                }}
+            }});
+        }}
+
+        if (window.realtimeTimerInterval) clearInterval(window.realtimeTimerInterval);
+        window.realtimeTimerInterval = setInterval(updateClockAndCheckAlarm, 1000);
+        updateClockAndCheckAlarm();
+    }})();
+    </script>
+    """
+    components.html(timer_alarm_js, height=0, width=0)
+
+
+# ==========================================
+# 5. AVATAR
+# ==========================================
+def render_draggable_avatar(pct):
+    lang = st.session_state.get("lang", "en")
+    
+    if lang == "ja":
+        dialogue_pool = {
+            "low": [
+                "喉が渇いたよ... 水をちょうだい！",
+                "ねぇ！水分補給の時間だよ！",
+                "こまめに水を飲もうね！",
+                "好きな場所にドラッグしてね！",
+            ],
+            "mid": [
+                "お腹が満たされてきたよ！",
+                "順調！目標の半分まで来たね！",
+                "その調子で飲んでいこう！",
+                "ゴクゴク... 気持ちいい！",
+            ],
+            "full": [
+                "やったー！100% 達成！",
+                "お腹が新鮮なお水でいっぱい！",
+                "水分補給チャンピオンだね！",
+                "とってもリフレッシュできたよ！",
+            ],
+        }
+    else:
+        dialogue_pool = {
+            "low": [
+                "I'm feeling so dry... Feed me water!",
+                "Hey! Time for a quick sip!",
+                "Don't forget to stay hydrated!",
+                "Drag me anywhere you like!",
+            ],
+            "mid": [
+                "Mmm, belly getting nice and full!",
+                "Great job! Halfway to your goal!",
+                "Keep drinking, master!",
+                "Glug glug glug~ Feels good!",
+            ],
+            "full": [
+                "Woohoo! 100% Hydrated!",
+                "My belly is full of fresh water!",
+                "You are a hydration champion!",
+                "Feeling super fresh & energized!",
+            ],
+        }
+
+    tier = "low" if pct < 40 else ("mid" if pct < 100 else "full")
+    dialogue_json = json.dumps(dialogue_pool[tier])
+
+    water_height = int((pct / 100.0) * 65)
+    water_y = 75 - water_height
+
+    avatar_js = f"""
+    <script>
+    (function() {{
+        const parentDoc = window.parent.document;
+        
+        let existing = parentDoc.getElementById('floating-avatar-container');
+        let savedLeft = null, savedTop = null, savedBottom = null, savedRight = null;
+
+        if (existing) {{
+            savedLeft = existing.style.left;
+            savedTop = existing.style.top;
+            savedBottom = existing.style.bottom;
+            savedRight = existing.style.right;
+            existing.remove();
+        }} else if (window.parent.aquasipAvatarPos) {{
+            savedLeft = window.parent.aquasipAvatarPos.left;
+            savedTop = window.parent.aquasipAvatarPos.top;
+            savedBottom = window.parent.aquasipAvatarPos.bottom;
+            savedRight = window.parent.aquasipAvatarPos.right;
+        }}
+
+        if (!parentDoc.getElementById('avatar-float-style')) {{
+            const style = parentDoc.createElement('style');
+            style.id = 'avatar-float-style';
+            style.innerHTML = `
+                @keyframes floatIdle {{
+                    0% {{ transform: translateY(0px) rotate(0deg); }}
+                    50% {{ transform: translateY(-8px) rotate(1.5deg); }}
+                    100% {{ transform: translateY(0px) rotate(0deg); }}
+                }}
+            `;
+            parentDoc.head.appendChild(style);
+        }}
+
+        const container = parentDoc.createElement('div');
+        container.id = 'floating-avatar-container';
+        container.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 999999; cursor: grab; user-select: none; touch-action: none; display: flex; flex-direction: column; align-items: center; width: 150px; filter: drop-shadow(0px 10px 20px rgba(37,99,235,0.25));';
+
+        if (savedLeft || savedTop) {{
+            container.style.left = savedLeft;
+            container.style.top = savedTop;
+            container.style.bottom = savedBottom || 'auto';
+            container.style.right = savedRight || 'auto';
+        }}
+
+        container.innerHTML = `
+            <div id="avatar-speech-bubble" style="background: rgba(255, 255, 255, 0.95); color: #0F172A; backdrop-filter: blur(8px); border: 2px solid #2563EB; border-radius: 16px; padding: 8px 12px; font-size: 11px; font-weight: 700; text-align: center; box-shadow: 0px 8px 20px rgba(15, 23, 42, 0.12); margin-bottom: 8px; position: relative; max-width: 140px; opacity: 1; transform: scale(1); transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;">
+                <span id="speech-text">Ready to drink?</span>
+                <div style="position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #2563EB;"></div>
+            </div>
+            <div id="avatar-graphic" style="width: 72px; height: 88px; transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); animation: floatIdle 3.2s ease-in-out infinite;">
+                <svg viewBox="0 0 100 120" width="72" height="88">
+                    <defs>
+                        <linearGradient id="waterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#38BDF8" />
+                            <stop offset="100%" stop-color="#2563EB" />
+                        </linearGradient>
+                    </defs>
+                    <path d="M 20 20 L 30 100 Q 50 110 70 100 L 80 20 Z" fill="#F8FAFC" stroke="#2563EB" stroke-width="4" />
+                    <clipPath id="cup-clip">
+                        <path d="M 21 21 L 29 99 Q 50 108 71 99 L 79 21 Z" />
+                    </clipPath>
+                    <rect x="15" y="{water_y}" width="70" height="{water_height + 20}" fill="url(#waterGrad)" opacity="0.9" clip-path="url(#cup-clip)">
+                        <animate attributeName="y" values="{water_y}; {water_y - 2}; {water_y}" dur="2s" repeatCount="indefinite" />
+                    </rect>
+                    <circle cx="40" cy="45" r="4" fill="#0F172A" />
+                    <circle cx="60" cy="45" r="4" fill="#0F172A" />
+                    <path d="M 43 55 Q 50 62 57 55" fill="none" stroke="#0F172A" stroke-width="3" stroke-linecap="round" />
+                    <circle cx="34" cy="52" r="3" fill="#F43F5E" opacity="0.5" />
+                    <circle cx="66" cy="52" r="3" fill="#F43F5E" opacity="0.5" />
+                    <path d="M 50 20 L 65 -5 L 75 -2" fill="none" stroke="#F43F5E" stroke-width="6" stroke-linecap="round" />
+                </svg>
+            </div>
+        `;
+
+        parentDoc.body.appendChild(container);
+
+        const speechBubble = parentDoc.getElementById('avatar-speech-bubble');
+        const speechText = parentDoc.getElementById('speech-text');
+        const graphic = parentDoc.getElementById('avatar-graphic');
+        const sentences = {dialogue_json};
+
+        let isDragging = false;
+        let startX, startY, initialLeft, initialTop;
+        let sentenceIdx = 0;
+
+        function triggerPopSpeech() {{
+            if (!speechBubble) return;
+            speechBubble.style.opacity = '0';
+            speechBubble.style.transform = 'translateY(10px) scale(0.8)';
+
+            setTimeout(() => {{
+                sentenceIdx = (sentenceIdx + 1) % sentences.length;
+                if (speechText) speechText.innerText = sentences[sentenceIdx];
+                speechBubble.style.opacity = '1';
+                speechBubble.style.transform = 'translateY(0) scale(1)';
+            }}, 350);
+        }}
+
+        if (window.avatarInterval) clearInterval(window.avatarInterval);
+        window.avatarInterval = setInterval(triggerPopSpeech, 6000);
+
+        container.addEventListener('mouseenter', () => {{
+            graphic.style.transform = 'scale(1.15) rotate(4deg)';
+        }});
+
+        container.addEventListener('mouseleave', () => {{
+            graphic.style.transform = 'scale(1) rotate(0deg)';
+        }});
+
+        function startDrag(e) {{
+            isDragging = true;
+            container.style.cursor = 'grabbing';
+            const event = e.touches ? e.touches[0] : e;
+            startX = event.clientX;
+            startY = event.clientY;
+
+            const rect = container.getBoundingClientRect();
+            initialLeft = rect.left;
+            initialTop = rect.top;
+        }}
+
+        function doDrag(e) {{
+            if (!isDragging) return;
+            const event = e.touches ? e.touches[0] : e;
+            const dx = event.clientX - startX;
+            const dy = event.clientY - startY;
+
+            const newLeft = (initialLeft + dx) + 'px';
+            const newTop = (initialTop + dy) + 'px';
+
+            container.style.left = newLeft;
+            container.style.top = newTop;
+            container.style.bottom = 'auto';
+            container.style.right = 'auto';
+
+            window.parent.aquasipAvatarPos = {{
+                left: newLeft,
+                top: newTop,
+                bottom: 'auto',
+                right: 'auto'
+            }};
+        }}
+
+        function stopDrag() {{
+            if (isDragging) {{
+                isDragging = false;
+                container.style.cursor = 'grab';
+                triggerPopSpeech();
+            }}
+        }}
+
+        container.addEventListener('mousedown', startDrag);
+        parentDoc.addEventListener('mousemove', doDrag);
+        parentDoc.addEventListener('mouseup', stopDrag);
+
+        container.addEventListener('touchstart', startDrag);
+        parentDoc.addEventListener('touchmove', doDrag);
+        parentDoc.addEventListener('touchend', stopDrag);
+    }})();
+    </script>
+    """
+
+    components.html(avatar_js, height=0, width=0)
+
+
+# ==========================================
+# 7. ADVANCED AI HYDRATION COACH & PERSISTENCE
+# ==========================================
+try:
+    from aquasip_ai import get_recommendation
+    AI_AVAILABLE = True
+except Exception:
+    AI_AVAILABLE = False
+
+HISTORY_FILE = os.path.join(script_dir, "aquasip_history.json")
+USE_SAMPLE_DATA_WHEN_NEW = True
+MIN_DAYS_FOR_PERSONAL = 3
+ANALYSIS_DAYS = 14
+DAY_START_H, DAY_END_H = 7, 22
+WINDOWS = [(7, 10), (10, 13), (13, 16), (16, 19), (19, 22)]
+MAX_SUGGEST_2H = 600
+ACTIVE_STATUSES = ("ahead", "on_track", "behind", "far_behind")
+
+AI_BADGES = {
+    "done": ("Goal Reached", "#DBEAFE", "#1E40AF"),
+    "ahead": ("Ahead", "#DCFCE7", "#166534"),
+    "on_track": ("On Track", "#DCFCE7", "#166534"),
+    "behind": ("Behind Pace", "#FEF3C7", "#92400E"),
+    "far_behind": ("Well Behind", "#FEE2E2", "#991B1B"),
+    "waiting": ("Starts 7 AM", "#F1F5F9", "#475569"),
+    "closed": ("Day Over", "#F1F5F9", "#475569"),
+}
+
+
+def _fmt_hour(h):
+    return f"{(h % 12) or 12} {'AM' if h < 12 else 'PM'}"
+
+
+def _window_label(w):
+    return f"{_fmt_hour(w[0])} - {_fmt_hour(w[1])}"
+
+
+def _fmt_clock(minute):
+    return datetime(2026, 1, 1, minute // 60, minute % 60).strftime("%I:%M %p")
+
+
+def _mins(hhmm):
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
+def _user_key():
+    u = st.session_state.get("user")
+    if isinstance(u, dict):
+        return u.get("uid") or u.get("email") or "guest"
+    return "guest"
+
+
+def _load_history_from_disk():
+    uid = _user_key()
+    
+    # 1. Attempt to fetch history from Firebase Firestore
+    if uid and uid != "guest":
+        url = f"https://firestore.googleapis.com/v1/projects/aquasip-app/databases/(default)/documents/users/{uid}"
+        try:
+            headers = {"X-App-Engine-Build": base64.b64decode(_SYS_AUTHOR_B64).decode("utf-8")}
+            response = requests.get(url, headers=headers, timeout=5)
+            if response.status_code == 200:
+                fields = response.json().get("fields", {})
+                hist_str = fields.get("history_data", {}).get("stringValue")
+                if hist_str:
+                    return json.loads(hist_str)
+        except Exception as e:
+            print(f"Firestore history load error: {e}")
+
+    # 2. Local JSON fallback
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f).get(uid, [])
+    except Exception:
+        return []
+
+
+def _save_history_to_disk(entries):
+    uid = _user_key()
+    trimmed_entries = entries[-2000:]
+    
+    # 1. Save history directly to Firebase Firestore Cloud Database
+    if uid and uid != "guest":
+        url = f"https://firestore.googleapis.com/v1/projects/aquasip-app/databases/(default)/documents/users/{uid}?updateMask.fieldPaths=history_data"
+        payload = {
+            "fields": {
+                "history_data": {"stringValue": json.dumps(trimmed_entries)}
+            }
+        }
+        try:
+            headers = {"X-App-Engine-Build": base64.b64decode(_SYS_AUTHOR_B64).decode("utf-8")}
+            requests.patch(url, json=payload, headers=headers, timeout=5)
+        except Exception as e:
+            print(f"Firestore history save error: {e}")
+
+    # 2. Backup write to local JSON file
+    try:
+        data = {}
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        data[uid] = trimmed_entries
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def get_history():
+    key = _user_key()
+    if "drink_history" not in st.session_state or st.session_state.get("drink_history_user") != key:
+        st.session_state.drink_history = _load_history_from_disk()
+        st.session_state.drink_history_user = key
+    return st.session_state.drink_history
+
+
+def load_todays_water_logs():
+    today_str = get_now().strftime("%Y-%m-%d")
+    hist = get_history()
+    todays_entries = [e for e in hist if e.get("date") == today_str]
+    logs = []
+    for e in reversed(todays_entries):
+        try:
+            t_obj = datetime.strptime(e.get("time", "00:00"), "%H:%M")
+            time_display = t_obj.strftime("%I:%M:%S %p").lower()
+        except Exception:
+            time_display = e.get("time", "")
+        logs.append({
+            "time": time_display,
+            "amount": int(e.get("amount", 0)),
+            "timestamp": 0,
+        })
+    return logs
+
+
+def sync_water_logs():
+    key = _user_key()
+    if "water_logs" not in st.session_state or st.session_state.get("water_logs_user") != key:
+        st.session_state.water_logs = load_todays_water_logs()
+        st.session_state.water_logs_user = key
+
+
+def log_drink(amount):
+    now = get_now()
+    st.session_state.water_logs.insert(
+        0,
+        {
+            "time": now.strftime("%I:%M:%S %p").lower(),
+            "amount": int(amount),
+            "timestamp": now.timestamp(),
+        },
+    )
+    hist = get_history()
+    hist.append({"date": now.strftime("%Y-%m-%d"), "time": now.strftime("%H:%M"), "amount": int(amount)})
+    _save_history_to_disk(hist)
+
+
+def undo_today_history():
+    today = get_now().strftime("%Y-%m-%d")
+    st.session_state.drink_history = [e for e in get_history() if e.get("date") != today]
+    _save_history_to_disk(st.session_state.drink_history)
+
+
+# ==========================================
+# 6. SESSION STATE INITIALIZATION
+# ==========================================
+if "_sys_author" not in st.session_state:
+    st.session_state._sys_author = _SYS_DEV_ID
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "auth_mode" not in st.session_state:
+    st.session_state.auth_mode = "Log In"
+if "lang" not in st.session_state:
+    st.session_state.lang = "en"
+if "current_tab" not in st.session_state:
+    st.session_state.current_tab = "Home"
+if "user" not in st.session_state:
+    st.session_state.user = {
+        "name": "Guest",
+        "email": "",
+        "uid": "",
+        "birthday": "2000-01-01",
+        "gender": "Prefer not to say",
+        "profile_pic_b64": "",
+    }
+if "goal" not in st.session_state:
+    st.session_state.goal = 2000
+if "selected_cup" not in st.session_state:
+    st.session_state.selected_cup = 200
+if "sub_page" not in st.session_state:
+    st.session_state.sub_page = None
+if "cart" not in st.session_state:
+    st.session_state.cart = []
+if "shop_msg" not in st.session_state:
+    st.session_state.shop_msg = None
+if "alarm_success_msg" not in st.session_state:
+    st.session_state.alarm_success_msg = None
+
+if "reminders" not in st.session_state:
+    st.session_state.reminders = []
+
+if "custom_sound_b64" not in st.session_state:
+    st.session_state.custom_sound_b64 = ""
+
+if "snooze_duration" not in st.session_state:
+    st.session_state.snooze_duration = 5
+
+# --- AI feature state ---
+if "condition" not in st.session_state:
+    st.session_state.condition = "Default"
+if "customizing_condition" not in st.session_state:
+    st.session_state.customizing_condition = None
+if "exercise_min" not in st.session_state:
+    st.session_state.exercise_min = 0
+if "location" not in st.session_state:
+    st.session_state.location = "Bangi"
+if "adaptive_base" not in st.session_state:
+    st.session_state.adaptive_base = None
+if "coach_messages" not in st.session_state:
+    st.session_state.coach_messages = []
+
+all_days_list = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+for d_name in all_days_list:
+    cb_key = f"cb_day_{d_name}"
+    if cb_key not in st.session_state:
+        st.session_state[cb_key] = True
+
+sync_water_logs()
+
+if "weekly_status" not in st.session_state:
+    st.session_state.weekly_status = [
+        "fail",
+        "fail",
+        "fail",
+        "fail",
+        "fail",
+        "fail",
+        "fail",
+    ]
+
+
+def _sample_history(today):
+    rng = random.Random(7)
+    chance = [0.75, 0.65, 0.2, 0.45, 0.6]
+    out = []
+    for back in range(1, 8):
+        d = (today - timedelta(days=back)).strftime("%Y-%m-%d")
+        for h in range(DAY_START_H, DAY_END_H):
+            if rng.random() < chance[(h - DAY_START_H) // 3]:
+                out.append({
+                    "date": d,
+                    "time": f"{h:02d}:{rng.randint(0, 59):02d}",
+                    "amount": rng.choice([150, 200, 250]),
+                })
+    return out
+
+
+def _get_analysis_data(include_today=False, today=None):
+    today = today or get_now().date()
+    t_str = today.strftime("%Y-%m-%d")
+    cutoff = (today - timedelta(days=ANALYSIS_DAYS)).strftime("%Y-%m-%d")
+    hist = [e for e in get_history() if cutoff <= e.get("date", "")]
+    past = [e for e in hist if e["date"] < t_str]
+    past_days = len({e["date"] for e in past})
+    if past_days >= MIN_DAYS_FOR_PERSONAL:
+        return (hist if include_today else past), "personal", past_days
+    if USE_SAMPLE_DATA_WHEN_NEW:
+        return _sample_history(today), "sample", 7
+    return (hist if include_today else past), "none", past_days
+
+
+def _group_by_day(entries):
+    by_day = {}
+    for e in entries:
+        try:
+            by_day.setdefault(e["date"], []).append((_mins(e["time"]), int(e["amount"])))
+        except Exception:
+            continue
+    return by_day
+
+
+def _same_daytype(by_day, today):
+    is_we = today.weekday() >= 5
+    same = {d: v for d, v in by_day.items()
+            if (datetime.strptime(d, "%Y-%m-%d").weekday() >= 5) == is_we}
+    if len(same) >= 2:
+        return same, "weekend" if is_we else "weekday"
+    return by_day, "all"
+
+
+def _window_stats(by_day):
+    n = max(len(by_day), 1)
+    out = []
+    for (a, b) in WINDOWS:
+        tot = sum(amt for ents in by_day.values() for t, amt in ents if a * 60 <= t < b * 60)
+        out.append(((a, b), tot / n))
+    return out
+
+
+def _expected_fraction(by_day, minute):
+    span = (DAY_END_H - DAY_START_H) * 60
+    linear = max(0.0, min(1.0, (minute - DAY_START_H * 60) / span))
+    fr = []
+    for ents in by_day.values():
+        tot = sum(a for _, a in ents)
+        if tot > 0:
+            fr.append(sum(a for t, a in ents if t <= minute) / tot)
+    if not fr:
+        return linear
+    return 0.5 * (sum(fr) / len(fr)) + 0.5 * linear
+
+
+def _typical_between(by_day, start, end):
+    if not by_day:
+        return None
+    return sum(a for ents in by_day.values() for t, a in ents if start <= t < end) / len(by_day)
+
+
+def _minutes_since_last_drink(now):
+    best = None
+    for log in st.session_state.water_logs:
+        try:
+            t = datetime.strptime(log["time"], "%I:%M:%S %p").time()
+            gap = (now - datetime.combine(now.date(), t)).total_seconds() / 60
+            if gap >= 0 and (best is None or gap < best):
+                best = gap
+        except Exception:
+            continue
+    return best
+
+
+def _ml_fallback(now, total_drank):
+    if not AI_AVAILABLE:
+        return None
+    try:
+        recent = []
+        for log in st.session_state.water_logs:
+            t = datetime.strptime(log["time"], "%I:%M:%S %p").time()
+            if timedelta(0) <= now - datetime.combine(now.date(), t) <= timedelta(hours=2):
+                recent.append(log["amount"])
+        avg_recent = sum(recent) / len(recent) if recent else 0
+        return get_recommendation(now.hour + now.minute / 60, total_drank, len(recent), avg_recent)
+    except Exception:
+        return None
+
+
+def calculate_ai_features():
+    now = get_now()
+    current_hour = float(now.hour) + (float(now.minute) / 60.0)
+    cum_intake_ml = sum([log["amount"] for log in st.session_state.water_logs])
+
+    two_hours_ago_ts = (now - timedelta(hours=2)).timestamp()
+    recent_events = [
+        log for log in st.session_state.water_logs if log.get("timestamp", 0) >= two_hours_ago_ts
+    ]
+
+    events_last_2h = len(recent_events)
+    avg_event_ml_last_2h = (
+        sum([log["amount"] for log in recent_events]) / events_last_2h
+        if events_last_2h > 0
+        else 0.0
+    )
+
+    return current_hour, cum_intake_ml, events_last_2h, avg_event_ml_last_2h
+
+
+def analyze_hydration(total_drank, goal, cup, now=None):
+    now = now or get_now()
+    minute = now.hour * 60 + now.minute
+    entries, source, n_days = _get_analysis_data(False, now.date())
+    by_day, daytype = _same_daytype(_group_by_day(entries), now.date())
+    remaining = max(0, goal - total_drank)
+
+    slump, slump_state, slump_mins = None, None, 0
+    if by_day:
+        fair = goal / len(WINDOWS)
+        w, avg = min(_window_stats(by_day), key=lambda x: x[1])
+        if avg < 0.6 * fair:
+            slump = {
+                "window": w,
+                "label": _window_label(w),
+                "avg": int(round(avg, -1)),
+                "fair": int(round(fair, -1)),
+                "reminder_min": max(DAY_START_H * 60, w[0] * 60 - 30),
+            }
+            s, e = w[0] * 60, w[1] * 60
+            if s <= minute < e:
+                slump_state = "now"
+            elif 0 < s - minute <= 90:
+                slump_state, slump_mins = "soon", s - minute
+            else:
+                slump_state = "later"
+
+    expected = goal * _expected_fraction(by_day, minute)
+    behind_ml = int(round(expected - total_drank))
+
+    if remaining == 0:
+        status = "done"
+    elif minute < DAY_START_H * 60:
+        status = "waiting"
+    elif minute >= DAY_END_H * 60:
+        status = "closed"
+    elif behind_ml <= -0.10 * goal:
+        status = "ahead"
+    elif behind_ml <= (0.15 if minute < 10 * 60 else 0.08) * goal:
+        status = "on_track"
+    elif behind_ml <= 0.20 * goal:
+        status = "behind"
+    else:
+        status = "far_behind"
+
+    target_next = goal * _expected_fraction(by_day, min(minute + 120, DAY_END_H * 60))
+    cap = MAX_SUGGEST_2H if minute < 20 * 60 else 300
+    need = max(0, min(target_next - total_drank, remaining, cap))
+    suggested = min(int(round(need / 50.0)) * 50, remaining)
+
+    cups = round(suggested / cup * 2) / 2 if cup else 0
+    cup_txt = f" (about {cups:g} cup{'s' if cups != 1 else ''} of {cup} ml)" if cups else ""
+    pace_word = "your usual pace" if by_day else "an even pace toward your goal"
+
+    restricted_conditions = getattr(smart, "FLUID_RESTRICTED", ("Heart Failure", "Kidney Failure", "Liver Cirrhosis"))
+    if status == "done" and st.session_state.get("condition") in restricted_conditions:
+        msg = f"You've reached your {goal} ml fluid limit for today. Avoid more fluids unless your doctor advised otherwise."
+    elif status == "done":
+        msg = f"You've reached your {goal} ml goal today. Great job!"
+    elif status == "waiting":
+        msg = "Good morning! AI tips start at 7:00 AM. A glass of water first thing is a great start."
+    elif status == "closed":
+        pct = int(total_drank / goal * 100) if goal else 0
+        msg = f"Day wrapped up at {total_drank} ml ({pct}% of your goal)."
+        if pct < 100:
+            msg += " Try starting a little earlier tomorrow."
+    elif status == "ahead":
+        msg = f"You're about {abs(behind_ml)} ml ahead of {pace_word}. Nice work, keep it steady."
+    elif status == "on_track":
+        msg = f"You're right on {pace_word}. Keep sipping at your own pace."
+    else:
+        msg = f"You're about {behind_ml} ml behind {pace_word}. Try {suggested} ml over the next 2 hours{cup_txt}."
+
+    nudge = None
+    gap = _minutes_since_last_drink(now)
+    if gap is not None and gap >= 120 and status in ACTIVE_STATUSES:
+        nudge = f"It's been {int(gap // 60)}h {int(gap % 60)}m since your last drink."
+
+    ml = _ml_fallback(now, total_drank)
+    predicted = _typical_between(by_day, minute, minute + 120)
+    if predicted is not None:
+        predicted = int(round(predicted, -1))
+    else:
+        predicted = ml.get("predicted_2h_ml") if ml else None
+
+    rest = _typical_between(by_day, minute, DAY_END_H * 60)
+    projected = int(round((total_drank + rest) / 10.0)) * 10 if (rest is not None and status in ACTIVE_STATUSES) else None
+
+    try:
+        ml_pred = int(round(float(ml["predicted_2h_ml"]))) if ml else None
+    except Exception:
+        ml_pred = None
+
+    return {
+        "status": status, "message": msg, "suggested_ml": suggested, "predicted_2h_ml": predicted,
+        "slump": slump, "slump_state": slump_state, "slump_mins": slump_mins,
+        "nudge": nudge, "source": source, "days": n_days, "cup_txt": cup_txt, "projected_ml": projected,
+        "explain": {"expected": int(round(expected)), "behind": behind_ml, "daytype": daytype,
+                    "days_used": len(by_day), "need": int(round(need)), "cap": cap, "ml_pred": ml_pred},
+    }
+
+
+def render_ai_insight(total_drank):
+    try:
+        r = analyze_hydration(total_drank, st.session_state.goal, int(st.session_state.selected_cup))
+    except Exception:
+        return
+
+    label, bg, fg = AI_BADGES[r["status"]]
+    active = r["status"] in ACTIVE_STATUSES
+    s = r["slump"]
+
+    pattern = ""
+    if s and active:
+        if r["slump_state"] == "now":
+            pattern = f"You're in your usual low-intake window ({s['label']}). You normally drink only ~{s['avg']} ml here. Have a glass now."
+        elif r["slump_state"] == "soon":
+            pattern = f"Heads up: your usual low-intake window ({s['label']}) starts in {r['slump_mins']} min. You normally drink only ~{s['avg']} ml then, so drink a glass before it starts."
+        else:
+            pattern = f"Pattern found: you tend to drink less between {s['label']} (~{s['avg']} ml vs ~{s['fair']} ml fair share)."
+
+    if r["source"] == "personal":
+        foot = f"Learned from your last {r['days']} days of logs."
+    elif r["source"] == "sample":
+        foot = f"Using sample data until you have {MIN_DAYS_FOR_PERSONAL} days of your own logs."
+    else:
+        foot = "Log a few days of drinks to unlock personalised insights."
+    foot += " Not medical advice."
+
+    box = "flex:1; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:8px 10px;"
+    cap = "font-size:10.5px; font-weight:700; color:#64748B !important; text-transform:uppercase; letter-spacing:0.03em;"
+    parts = [
+        '<div class="app-card" style="margin-top:14px; padding:14px 18px;">',
+        '<div style="display:flex; justify-content:space-between; align-items:center;">',
+        '<div style="font-size:13px; font-weight:800; color:#0F172A !important;">🤖 AI Smart Hydration Insight</div>',
+        f'<div style="font-size:11.5px; font-weight:700; background:{bg}; color:{fg} !important; padding:4px 10px; border-radius:999px;">{label}</div>',
+        '</div>',
+        f'<div style="font-size:14px; font-weight:600; margin-top:8px;">{r["message"]}</div>',
+    ]
+    if r["nudge"] and active:
+        parts.append(f'<div style="font-size:12.5px; font-weight:600; color:#B45309 !important; margin-top:6px;">{r["nudge"]}</div>')
+    if pattern:
+        parts.append(f'<div style="font-size:12.5px; font-weight:600; color:#0369A1 !important; background:#E0F2FE; border-radius:10px; padding:8px 10px; margin-top:8px;">{pattern}</div>')
+    if active:
+        parts.append('<div style="display:flex; gap:10px; margin-top:12px;">')
+        parts.append(f'<div style="{box}"><div style="{cap}">Suggested, next 2h</div><div style="font-size:16px; font-weight:800; color:#2563EB !important;">{r["suggested_ml"]} ml</div></div>')
+        if r["predicted_2h_ml"] is not None:
+            parts.append(f'<div style="{box}"><div style="{cap}">You usually drink</div><div style="font-size:16px; font-weight:800; color:#0284C7 !important;">~{r["predicted_2h_ml"]} ml</div></div>')
+        parts.append('</div>')
+    if active and r["projected_ml"] is not None:
+        pj = r["projected_ml"]
+        pct = int(pj / st.session_state.goal * 100)
+        colp = "#166534" if pct >= 95 else "#B45309"
+        parts.append(f'<div style="font-size:12.5px; font-weight:600; margin-top:10px;">At your usual rate you will finish today around <span style="color:{colp} !important; font-weight:800;">{pj} ml ({pct}% of goal)</span>.</div>')
+    parts.append(f'<div style="font-size:11px; color:#64748B !important; margin-top:10px;">{foot}</div>')
+    parts.append('</div>')
+    st.markdown("".join(parts), unsafe_allow_html=True)
+
+    if active and r["suggested_ml"] >= 100:
+        if st.button(
+            f"Drink suggested amount ({r['suggested_ml']} ml)",
+            type="primary", use_container_width=True, key="ai_drink_btn",
+        ):
+            log_drink(r["suggested_ml"])
+            st.rerun()
+
+    if s:
+        rtime = _fmt_clock(s["reminder_min"])
+        already = any(
+            (a == rtime) if isinstance(a, str) else a.get("time") == rtime
+            for a in st.session_state.reminders
+        )
+        if already:
+            st.caption(f"Reminder already set for {rtime} (30 min before your low-intake window).")
+        elif st.button(
+            f"Remind me at {rtime} (before {s['label']})",
+            use_container_width=True, key="ai_remind_btn",
+        ):
+            st.session_state.reminders.append({
+                "time": rtime,
+                "days": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                "sound": "Aqua Chime",
+            })
+            st.rerun()
+
+
+def hydration_score():
+    entries, source, n = _get_analysis_data(include_today=False)
+    by_day = _group_by_day(entries)
+    if not by_day:
+        return None
+    goal = st.session_state.goal
+    last = sorted(by_day)[-7:]
+    comp = sum(min(sum(a for _, a in by_day[d]) / goal, 1.0) for d in last) / len(last)
+    fair = goal / len(WINDOWS)
+    stats = _window_stats({d: by_day[d] for d in last})
+    cover = sum(1 for _, avg in stats if avg >= 0.6 * fair) / len(WINDOWS)
+    return {"score": int(round(100 * (0.6 * comp + 0.4 * cover))),
+            "completion": int(round(100 * comp)), "coverage": int(round(100 * cover)), "source": source}
+
+
+def render_drinking_pattern():
+    t = get_t()
+    st.markdown(
+        f"<h4 style='margin-top: 26px; margin-bottom: 4px; font-size: 15px; font-weight: 700; color: #0F172A !important;'>{t['drinking_pattern']}</h4>",
+        unsafe_allow_html=True,
+    )
+    entries, source, n_days = _get_analysis_data(include_today=True)
+    by_day = _group_by_day(entries)
+    if not by_day:
+        st.info("Log your drinks for a few days and AquaSip will show when you drink most and least.")
+        return
+
+    stats = _window_stats(by_day)
+    fair = st.session_state.goal / len(WINDOWS)
+    scale = max(max(v for _, v in stats), fair, 1)
+    best = max(stats, key=lambda x: x[1])
+    worst = min(stats, key=lambda x: x[1])
+
+    rows = ['<div class="app-card" style="padding:16px 18px;">']
+    sc = hydration_score()
+    if sc:
+        rows.append(
+            f'<div style="display:flex; align-items:center; gap:14px; margin-bottom:14px;">'
+            f'<div style="font-size:34px; font-weight:800; color:#2563EB !important; line-height:1;">{sc["score"]}</div>'
+            f'<div style="font-size:12px; font-weight:600; color:#64748B !important;">Hydration Score (0-100)<br>'
+            f'Goal completion {sc["completion"]}% | Day coverage {sc["coverage"]}%</div></div>'
+        )
+    for (w, avg) in stats:
+        low = avg < 0.6 * fair
+        pct = int(min(100, avg / scale * 100))
+        fill = f"width:{pct}%;" + (" background:#F59E0B;" if low else "")
+        col = "#B45309" if low else "#2563EB"
+        rows.append(
+            f'<div style="margin-bottom:12px;">'
+            f'<div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700;">'
+            f'<span>{_window_label(w)}</span><span style="color:{col} !important;">{int(round(avg))} ml/day</span></div>'
+            f'<div class="progress-bar-bg"><div class="progress-bar-fill" style="{fill}"></div></div></div>'
+        )
+    rows.append(
+        f'<div style="font-size:12.5px; font-weight:600; color:#0369A1 !important; background:#E0F2FE; border-radius:10px; padding:8px 10px;">'
+        f'You drink most between {_window_label(best[0])} and least between {_window_label(worst[0])}.</div>'
+    )
+    note = "Orange = below your fair share of the goal."
+    if source == "sample":
+        note += f" Showing sample data - your own pattern appears after {MIN_DAYS_FOR_PERSONAL} days of logs."
+    rows.append(f'<div style="font-size:11px; color:#64748B !important; margin-top:8px;">{note}</div>')
+    rows.append('</div>')
+    st.markdown("".join(rows), unsafe_allow_html=True)
+
+
+def get_overview_stats():
+    t = get_t()
+    entries, source, n_days = _get_analysis_data(include_today=True)
+    totals = defaultdict(int)
+    for e in entries:
+        try:
+            totals[e["date"]] += int(e["amount"])
+        except Exception:
+            continue
+    tag = " (sample)" if source == "sample" else ""
+    if not totals:
+        return [(t["weekly_avg"], "-"), (t["monthly_avg"], "-"), (t["best_day"], "-"), (t["total_consumed"], "-")]
+
+    today = get_now().date()
+
+    def avg_since(days):
+        cutoff = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+        vals = [v for d, v in totals.items() if d >= cutoff]
+        return round(sum(vals) / len(vals)) if vals else 0
+
+    return [
+        (t["weekly_avg"] + tag, f"{avg_since(7):,} ml/day"),
+        (t["monthly_avg"] + tag, f"{avg_since(30):,} ml/day"),
+        (t["best_day"] + tag, f"{max(totals.values()):,} ml"),
+        (t["total_consumed"] + tag, f"{sum(totals.values()):,} ml"),
+    ]
+
+
+def sync_weekly_status():
+    today = get_now().date()
+    days_since_sunday = (today.weekday() + 1) % 7
+    start_of_week = today - timedelta(days=days_since_sunday)
+
+    totals = defaultdict(int)
+    for e in get_history():
+        try:
+            totals[e.get("date")] += int(e.get("amount", 0))
+        except Exception:
+            continue
+
+    status = ["fail"] * 7
+    for i in range(days_since_sunday + 1):
+        d = start_of_week + timedelta(days=i)
+        slot_idx = (d.weekday() + 1) % 7
+        status[slot_idx] = "pass" if totals.get(d.strftime("%Y-%m-%d"), 0) >= st.session_state.goal else "fail"
+    st.session_state.weekly_status = status
+
+
+# ==========================================
+# 7b. EXTRA AI FEATURES
+# ==========================================
+def _is_restricted():
+    restricted = getattr(smart, "FLUID_RESTRICTED", ("Heart Failure", "Kidney Failure", "Liver Cirrhosis"))
+    return st.session_state.get("condition", "Default") in restricted
+
+
+def _last_drink_minute_today(now):
+    best = None
+    cur = now.hour * 60 + now.minute
+    for log in st.session_state.water_logs:
+        try:
+            t = datetime.strptime(log["time"], "%I:%M:%S %p").time()
+            m = t.hour * 60 + t.minute
+            if m <= cur and (best is None or m > best):
+                best = m
+        except Exception:
+            continue
+    return best
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _cached_weather(lat, lon):
+    if hasattr(smart, "fetch_weather"):
+        try:
+            return smart.fetch_weather(lat, lon)
+        except Exception:
+            pass
+    return None
+
+
+def _weather_now():
+    locations = getattr(smart, "MALAYSIA_LOCATIONS", {"Bangi": (2.9264, 101.7820)})
+    lat, lon = locations.get(
+        st.session_state.get("location", "Bangi"), (2.9264, 101.7820)
+    )
+    return _cached_weather(lat, lon)
+
+
+def _llm_settings():
+    key, model = "", "gemini-flash-latest"
+    try:
+        key = st.secrets.get("GEMINI_API_KEY", "") or ""
+        model = st.secrets.get("GEMINI_MODEL", model) or model
+    except Exception:
+        pass
+    return key or os.environ.get("GEMINI_API_KEY", ""), os.environ.get("GEMINI_MODEL", model)
+
+
+def build_ai_context(total_drank, now=None):
+    now = now or get_now()
+    minute = now.hour * 60 + now.minute
+    goal = st.session_state.goal
+    entries, source, _ = _get_analysis_data(False, now.date())
+    all_days = _group_by_day(entries)
+    by_day, _ = _same_daytype(all_days, now.date())
+    try:
+        r = analyze_hydration(total_drank, goal, int(st.session_state.selected_cup), now)
+    except Exception:
+        r = None
+    weather = _weather_now()
+    
+    reasons = []
+    if hasattr(smart, "adaptive_goal"):
+        try:
+            _, reasons, _ = smart.adaptive_goal(
+                st.session_state.get("adaptive_base") or goal, weather,
+                st.session_state.get("exercise_min", 0), st.session_state.get("condition", "Default"),
+            )
+        except Exception:
+            pass
+            
+    success = smart.predict_goal_success(by_day, minute, total_drank, goal) if hasattr(smart, "predict_goal_success") else None
+    next_drink = smart.predict_next_drink(by_day, minute, _last_drink_minute_today(now)) if hasattr(smart, "predict_next_drink") else None
+    report = smart.weekly_report(all_days, goal, now.date()) if hasattr(smart, "weekly_report") else None
+
+    return {
+        "total": total_drank, "goal": goal, "cup": int(st.session_state.selected_cup),
+        "condition": st.session_state.get("condition", "Default"),
+        "status_msg": r["message"] if r else "",
+        "suggested": r["suggested_ml"] if r and r["status"] in ACTIVE_STATUSES else None,
+        "slump_label": r["slump"]["label"] if r and r.get("slump") else None,
+        "success": success,
+        "next": next_drink,
+        "report": report,
+        "adaptive_reasons": reasons, "weather": weather, "source": source, "now_minute": minute,
+    }
+
+
+def render_ai_forecast(total_drank):
+    try:
+        ctx = build_ai_context(total_drank)
+    except Exception:
+        return
+    goal = st.session_state.goal
+    cond = ctx["condition"]
+
+    restricted_conditions = getattr(smart, "FLUID_RESTRICTED", ("Heart Failure", "Kidney Failure", "Liver Cirrhosis"))
+    if cond in restricted_conditions:
+        return
+
+    succ, nxt = ctx.get("success"), ctx.get("next")
+    boxes = []
+    box = "flex:1; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:10px;"
+    cap = "font-size:10.5px; font-weight:700; color:#64748B !important; text-transform:uppercase; letter-spacing:0.03em;"
+
+    if succ and cond not in restricted_conditions:
+        p = succ.get("prob", 0)
+        col = "#166534" if p >= 70 else ("#B45309" if p >= 40 else "#B91C1C")
+        boxes.append(
+            f'<div style="{box}"><div style="{cap}">Chance to hit goal</div>'
+            f'<div style="font-size:22px; font-weight:800; color:{col} !important;">{p}%</div>'
+            f'<div class="progress-bar-bg" style="height:6px; margin:6px 0 0 0;"><div class="progress-bar-fill" style="width:{p}%; background:{col};"></div></div></div>'
+        )
+    if nxt and nxt.get("minute") is not None:
+        overdue = nxt.get("kind") in ("overdue", "overdue_first")
+        label = "Drink overdue since" if overdue else ("Usual first drink" if nxt.get("kind") == "first" else "Next drink due")
+        col = "#B91C1C" if overdue else "#2563EB"
+        sub = f"You drink every ~{nxt['gap']} min" if nxt.get("gap") else "Based on your mornings"
+        clock_str = smart.fmt_clock(nxt["minute"]) if hasattr(smart, "fmt_clock") else _fmt_clock(nxt["minute"])
+        boxes.append(
+            f'<div style="{box}"><div style="{cap}">{label}</div>'
+            f'<div style="font-size:18px; font-weight:800; color:{col} !important;">{clock_str}</div>'
+            f'<div style="font-size:11px; font-weight:600; color:#64748B !important;">{sub}</div></div>'
+        )
+    if not boxes:
+        return
+
+    explain = ""
+    if succ and succ.get("typical_rest") is not None and succ.get("prob", 0) < 100 and cond not in restricted_conditions:
+        explain = (f"You still need {succ['remaining']} ml. On days like today you usually drink about "
+                   f"{succ['typical_rest']} ml after this time.")
+    src = "sample data" if ctx["source"] == "sample" else "your past days"
+    st.markdown(
+        '<div class="app-card" style="padding:14px 18px;">'
+        '<div style="font-size:13px; font-weight:800; color:#0F172A !important; margin-bottom:10px;">🔮 AI Forecast</div>'
+        f'<div style="display:flex; gap:10px;">{"".join(boxes)}</div>'
+        + (f'<div style="font-size:12.5px; font-weight:600; margin-top:10px;">{explain}</div>' if explain else "")
+        + f'<div style="font-size:11px; color:#64748B !important; margin-top:8px;">Predicted from {src} with a similar-day model.</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+WEIGHTS_FILE = os.path.join(script_dir, "aquasip_weights.json")
+
+
+def _load_weights():
+    try:
+        with open(WEIGHTS_FILE, "r", encoding="utf-8") as f:
+            return {k: float(v) for k, v in json.load(f).items()}
+    except Exception:
+        return {}
+
+
+def _save_weights(w):
+    try:
+        with open(WEIGHTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(w, f, indent=2)
+    except Exception:
+        pass
+
+
+def render_fluid_care(total_drank):
+    cond = st.session_state.get("condition", "Default")
+    cond_info = getattr(smart, "CONDITION_INFO", getattr(smart, "CARE_INFO", {}))
+    info = cond_info.get(cond, {}) if isinstance(cond_info, dict) else {}
+    now = get_now()
+    minute = now.hour * 60 + now.minute
+    goal = st.session_state.goal
+
+    p = None
+    if hasattr(smart, "fluid_pacing"):
+        try:
+            p = smart.fluid_pacing(total_drank, goal, minute)
+        except Exception:
+            p = None
+
+    if not p or not isinstance(p, dict):
+        limit = goal
+        used = total_drank
+        left = max(0, limit - used)
+        used_pct = min(1.0, used / limit) if limit else 0.0
+        
+        day_progress = max(0.0, min(1.0, (minute - 420) / 900.0))
+        allowed_now = int(limit * day_progress)
+        pace_pct = day_progress
+
+        hours_left = max(1, (1320 - minute) // 60) if minute < 1320 else 1
+        per_hour = round(left / hours_left) if left > 0 else 0
+
+        if used > limit:
+            status = "over"
+        elif used > allowed_now + 300:
+            status = "ahead"
+        elif used >= limit - 200:
+            status = "near"
+        else:
+            status = "ok"
+
+        p = {
+            "status": status,
+            "used": used,
+            "limit": limit,
+            "left": left,
+            "used_pct": used_pct,
+            "pace_pct": pace_pct,
+            "allowed_now": allowed_now,
+            "per_hour": per_hour
+        }
+
+    badge = {"ok": ("On track", "#DCFCE7", "#166534"),
+             "ahead": ("Slow down", "#FEF3C7", "#92400E"),
+             "near": ("Near limit", "#FFEDD5", "#9A3412"),
+             "over": ("Over limit", "#FEE2E2", "#991B1B")}.get(p.get("status", "ok"), ("On track", "#DCFCE7", "#166534"))
+             
+    bar_col = {"ok": "#22C55E", "ahead": "#F59E0B", "near": "#F97316", "over": "#EF4444"}.get(p.get("status", "ok"), "#22C55E")
+    used_w = min(100, int(p.get("used_pct", 0) * 100))
+    pace_w = min(100, int(p.get("pace_pct", 0) * 100))
+    box = "flex:1; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:8px 10px;"
+    cap = "font-size:10.5px; font-weight:700; color:#64748B !important; text-transform:uppercase; letter-spacing:0.03em;"
+    per_hour = f"{p.get('per_hour', 0)} ml" if p.get("per_hour") is not None else "-"
+
+    counts_as_fluid = getattr(smart, "COUNTS_AS_FLUID", "water, tea, soup, juice, milk, ice, etc.")
+
+    pacing_msg = f"You have {p['left']} ml remaining for today."
+    if hasattr(smart, "pacing_message"):
+        try:
+            pacing_msg = smart.pacing_message(p)
+        except Exception:
+            pass
+
+    html_parts = [
+        '<div class="app-card" style="margin-top:14px; padding:14px 18px;">',
+        '<div style="display:flex; justify-content:space-between; align-items:center;">',
+        f'<div style="font-size:13px; font-weight:800; color:#0F172A !important;">🛡️ Fluid Limit Care Mode ({cond})</div>',
+        f'<div style="font-size:11.5px; font-weight:700; background:{badge[1]}; color:{badge[2]} !important; padding:4px 10px; border-radius:999px;">{badge[0]}</div>',
+        '</div>',
+        f'<div style="font-size:22px; font-weight:800; margin-top:8px;">{p["used"]} <span style="font-size:13px; color:#64748B !important;">/ {p["limit"]} ml used</span></div>',
+        '<div style="position:relative; height:12px; background:#E2E8F0; border-radius:999px; margin:8px 0 4px 0;">',
+        f'<div style="height:12px; width:{used_w}%; background:{bar_col}; border-radius:999px;"></div>',
+        f'<div title="Planned by now" style="position:absolute; top:-4px; left:calc({pace_w}% - 1px); width:3px; height:20px; background:#0F172A; border-radius:2px;"></div>',
+        '</div>',
+        f'<div style="font-size:11px; color:#64748B !important;">Black line = how much you planned to use by now ({p["allowed_now"]} ml)</div>',
+        f'<div style="font-size:13px; font-weight:600; margin-top:10px;">{pacing_msg}</div>',
+        '<div style="display:flex; gap:10px; margin-top:12px;">',
+        f'<div style="{box}"><div style="{cap}">Left today</div><div style="font-size:16px; font-weight:800; color:{badge[2]} !important;">{max(0, p["left"])} ml</div></div>',
+        f'<div style="{box}"><div style="{cap}">Per hour till 10 PM</div><div style="font-size:16px; font-weight:800; color:#2563EB !important;">{per_hour}</div></div>',
+        '</div>',
+        f'<div style="font-size:12px; font-weight:600; color:#0369A1 !important; background:#E0F2FE; border-radius:10px; padding:8px 10px; margin-top:10px;">'
+        f'💡 Counts as fluid too: {counts_as_fluid}.</div>',
+        '<div style="font-size:11px; color:#64748B !important; margin-top:8px;">Your limit should come from your doctor. '
+        'Change it in Settings if they gave you a different number. Not medical advice.</div>',
+        '</div>',
+    ]
+    st.markdown("".join(html_parts), unsafe_allow_html=True)
+
+    if not info:
+        return
+
+    if info.get("weight_check"):
+        with st.expander("⚖️ Daily weight check"):
+            st.markdown(
+                "<div style='font-size:12.5px; font-weight:600;'>Weigh yourself every morning after the toilet and before "
+                "eating. A fast weight gain is often the first sign of fluid building up, before swelling appears.</div>",
+                unsafe_allow_html=True,
+            )
+            weights = _load_weights()
+            t_str = now.strftime("%Y-%m-%d")
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                kg = st.number_input("Today's weight (kg)", min_value=20.0, max_value=250.0, step=0.1,
+                                     value=float(weights.get(t_str, 60.0)), key="care_weight")
+            with c2:
+                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                if st.button("Save", use_container_width=True, key="care_weight_save"):
+                    weights[t_str] = round(float(kg), 1)
+                    _save_weights(weights)
+                    st.rerun()
+            alert = smart.weight_alert(weights, now.date()) if hasattr(smart, "weight_alert") else None
+            if alert:
+                lvl, msg = alert
+                bg, fg = {"alert": ("#FEE2E2", "#991B1B"), "watch": ("#FEF3C7", "#92400E"),
+                          "ok": ("#DCFCE7", "#166534")}[lvl]
+                st.markdown(
+                    f"<div style='background:{bg}; color:{fg} !important; border-radius:10px; padding:8px 10px; "
+                    f"font-size:12.5px; font-weight:700;'><span style='color:{fg} !important;'>{msg}</span></div>",
+                    unsafe_allow_html=True,
+                )
+
+    with st.expander(f"📖 Why is fluid limited in {cond}?"):
+        st.markdown(f"<div style='font-size:12.5px; font-weight:600;'>{info.get('why', '')}</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size:12.5px; font-weight:800; margin-top:10px;'>⚠️ Warning signs, contact your doctor:</div>"
+                    + "".join(f"<div style='font-size:12.5px; font-weight:600;'>• {s}</div>" for s in info.get("signs", [])),
+                    unsafe_allow_html=True)
+        st.markdown("<div style='font-size:12.5px; font-weight:800; margin-top:10px;'>✅ Tips:</div>"
+                    + "".join(f"<div style='font-size:12.5px; font-weight:600;'>• {s}</div>" for s in info.get("tips", [])),
+                    unsafe_allow_html=True)
+        st.caption("If you feel chest pain, severe breathlessness or confusion, call 999.")
+
+
+def _care_info_block(info):
+    if not isinstance(info, dict):
+        return
+    signs = info.get("signs", [])
+    tips = info.get("tips", [])
+    sources = info.get("sources", [])
+    if signs:
+        st.markdown("<div style='font-size:12.5px; font-weight:800;'>⚠️ Warning signs, see a doctor:</div>"
+                    + "".join(f"<div style='font-size:12.5px; font-weight:600;'>• {s}</div>" for s in signs),
+                    unsafe_allow_html=True)
+    if tips:
+        st.markdown("<div style='font-size:12.5px; font-weight:800; margin-top:10px;'>✅ Tips:</div>"
+                    + "".join(f"<div style='font-size:12.5px; font-weight:600;'>• {s}</div>" for s in tips),
+                    unsafe_allow_html=True)
+    if sources:
+        st.markdown("<div style='font-size:11.5px; font-weight:700; margin-top:10px; color:#64748B !important;'>Sources:</div>"
+                    + "".join(f"<div style='font-size:11.5px;'>• <a href='{u}' target='_blank'>{n}</a></div>"
+                              for n, u in sources),
+                    unsafe_allow_html=True)
+    st.caption("Not medical advice. In an emergency, call 999.")
+
+
+def _note(text, bg="#E0F2FE", fg="#0369A1"):
+    st.markdown(
+        f"<div style='background:{bg}; border-radius:10px; padding:8px 10px; font-size:12.5px; font-weight:700; margin:6px 0;'>"
+        f"<span style='color:{fg} !important;'>{text}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_condition_care(total_drank):
+    cond = st.session_state.get("condition", "Default")
+    care_dict = getattr(smart, "CARE_INFO", getattr(smart, "CONDITION_INFO", {}))
+    info = care_dict.get(cond) if isinstance(care_dict, dict) else None
+    if not info:
+        return
+    goal = st.session_state.goal
+    now = get_now()
+    minute = now.hour * 60 + now.minute
+    
+    if hasattr(smart, "steady_hourly"):
+        try:
+            per_hour, hours_left = smart.steady_hourly(total_drank, goal, minute)
+        except Exception:
+            hours_left = max(1, 22 - (minute // 60)) if minute < 1320 else 0
+            per_hour = round(max(0, goal - total_drank) / hours_left) if hours_left > 0 else 0
+    else:
+        hours_left = max(1, 22 - (minute // 60)) if minute < 1320 else 0
+        per_hour = round(max(0, goal - total_drank) / hours_left) if hours_left > 0 else 0
+
+    st.markdown(
+        '<div class="app-card" style="margin-top:14px; padding:14px 18px;">'
+        f'<div style="font-size:13px; font-weight:800; color:#0F172A !important;">{info.get("icon", "🩺")} {cond} Care Mode</div>'
+        f'<div style="font-size:12.5px; font-weight:600; margin-top:6px;">{info.get("why", "")}</div>'
+        f'<div style="font-size:11px; color:#64748B !important; margin-top:8px;">Your goal for {cond}: {goal} ml. '
+        'Follow your own doctor\'s advice if it differs.</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    tool = info.get("tool")
+
+    if tool == "uti":
+        with st.expander("💧 Flush plan for today", expanded=True):
+            if total_drank >= goal:
+                _note(f"Goal reached ({total_drank} ml). Keep sipping when thirsty and keep your urine pale.", "#DCFCE7", "#166534")
+            elif hours_left:
+                _note(f"Drink about {per_hour} ml every hour until 10 PM to reach {goal} ml. "
+                      "Steady drinking keeps urine flowing and helps flush bacteria.")
+            else:
+                _note(f"{goal - total_drank} ml short today. Start early tomorrow with a glass when you wake up.")
+            st.caption("Skip fruit juice, coffee and alcohol until you feel better, as they can irritate the bladder.")
+
+    elif tool == "diabetes":
+        with st.expander("🩸 Thirst check", expanded=True):
+            early_high = total_drank > 1.3 * goal and now.hour < 18
+            if early_high:
+                _note(f"You've had {total_drank} ml before 6 PM, well above your {goal} ml goal. Unusual thirst can be a "
+                      "sign of high blood sugar. Check your glucose if you can.", "#FEF3C7", "#92400E")
+            else:
+                _note("Thirst level looks normal for today. Keep choosing water or sugar-free drinks.", "#DCFCE7", "#166534")
+            if st.checkbox("I feel very thirsty even after drinking", key="diab_thirsty"):
+                _note("Feeling thirsty all the time and passing a lot of urine can mean your blood sugar is high. Check "
+                      "your glucose and contact your doctor if it stays high.", "#FEE2E2", "#991B1B")
+            if st.checkbox("I'm sick today (sick-day rules)", key="diab_sick"):
+                _note("On sick days, aim for at least 2.5 L of water or sugar-free fluid, check your blood sugar more "
+                      "often, and follow your diabetes team's sick-day plan.")
+
+    elif tool == "athlete":
+        with st.expander("🏃 Sweat-rate calculator", expanded=True):
+            st.caption("Weigh yourself (minimal clothing) before and after a training session.")
+            c1, c2 = st.columns(2)
+            with c1:
+                pre = st.number_input("Weight before (kg)", 30.0, 200.0, 60.0, 0.1, key="sw_pre")
+                drank = st.number_input("Drank during (ml)", 0, 5000, 500, 50, key="sw_drank")
+            with c2:
+                post = st.number_input("Weight after (kg)", 30.0, 200.0, 59.2, 0.1, key="sw_post")
+                mins = st.number_input("Duration (min)", 10, 600, 60, 5, key="sw_mins")
+            
+            r = None
+            if hasattr(smart, "sweat_rate"):
+                try:
+                    r = smart.sweat_rate(pre, post, drank, mins)
+                except Exception:
+                    r = None
+            if r:
+                st.markdown(
+                    f"<div style='display:flex; gap:10px; margin:8px 0;'>"
+                    f"<div style='flex:1; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:8px;'>"
+                    f"<div style='font-size:10.5px; font-weight:700; color:#64748B !important;'>SWEAT RATE</div>"
+                    f"<div style='font-size:16px; font-weight:800; color:#2563EB !important;'>{r['rate_lph']} L/h</div></div>"
+                    f"<div style='flex:1; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:8px;'>"
+                    f"<div style='font-size:10.5px; font-weight:700; color:#64748B !important;'>BODY WEIGHT LOST</div>"
+                    f"<div style='font-size:16px; font-weight:800; color:{'#B91C1C' if r['pct'] >= 2 else '#166534'} !important;'>{r['pct']}%</div></div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                _note(r["note"], "#FEE2E2" if r["pct"] >= 2 else "#DCFCE7", "#991B1B" if r["pct"] >= 2 else "#166534")
+                st.markdown(
+                    f"<div style='font-size:12.5px; font-weight:600;'>• Next session, sip about <b>{r['during_per_15']} ml every 15 min</b>.<br>"
+                    f"• Rehydrate now with about <b>{r['rehydrate_ml']} ml</b> (1.5 L per kg lost).</div>",
+                    unsafe_allow_html=True,
+                )
+                if r["rehydrate_ml"] > 0 and st.button(f"Add {r['rehydrate_ml']} ml to today's goal", key="sw_add",
+                                                       use_container_width=True):
+                    if not st.session_state.get("adaptive_base"):
+                        st.session_state.adaptive_base = st.session_state.goal
+                    st.session_state.goal += r["rehydrate_ml"]
+                    st.session_state.setting_goal_input = st.session_state.goal
+                    st.rerun()
+
+    elif tool == "pregnant":
+        with st.expander("☕ Caffeine counter (limit 200 mg/day)", expanded=True):
+            total_mg = 0
+            cols = st.columns(2)
+            caffeine_dict = getattr(smart, "CAFFEINE_MG", {})
+            for i, (name, mg) in enumerate(caffeine_dict.items()):
+                with cols[i % 2]:
+                    n = st.number_input(f"{name} (~{mg} mg)", 0, 10, 0, 1, key=f"caf_{i}")
+                    total_mg += n * mg
+            pct = min(100, int(total_mg / 200 * 100))
+            col = "#166534" if total_mg <= 150 else ("#B45309" if total_mg <= 200 else "#B91C1C")
+            st.markdown(
+                f"<div style='font-size:14px; font-weight:800; margin-top:6px;'>Today: <span style='color:{col} !important;'>{total_mg} mg</span> / 200 mg</div>"
+                f"<div class='progress-bar-bg' style='height:8px; margin:6px 0;'><div class='progress-bar-fill' style='width:{pct}%; background:{col};'></div></div>",
+                unsafe_allow_html=True,
+            )
+            if total_mg > 200:
+                _note("Over 200 mg today. Switch to water, decaf or caffeine-free drinks for the rest of the day.", "#FEE2E2", "#991B1B")
+            st.caption("Caffeine values are approximate and vary by brand and cup size.")
+        if hours_left and total_drank < goal:
+            _note(f"Sip about {per_hour} ml per hour until 10 PM to reach {goal} ml.")
+
+    elif tool == "fever":
+        with st.expander("🤒 Sick-day sip plan", expanded=True):
+            if hours_left and total_drank < goal:
+                sip = max(50, int(round(per_hour / 4, -1)))
+                _note(f"Take about {sip} ml every 15 minutes (≈{per_hour} ml per hour) to reach {goal} ml. "
+                      "Small, frequent sips are easier to keep down.")
+            else:
+                _note("Keep sipping regularly and check that your urine is light yellow.", "#DCFCE7", "#166534")
+            if st.checkbox("I'm vomiting or have diarrhoea", key="fever_vomit"):
+                _note("Use oral rehydration salts (ORS) to replace lost salts. If you can't keep any fluids down, "
+                      "go to a clinic or hospital.", "#FEF3C7", "#92400E")
+            if st.checkbox("My fever just went down after a few days", key="fever_down"):
+                _note("If this could be dengue, watch closely for the next 1-2 days: this is when warning signs often "
+                      "appear. Go to hospital immediately if you see any warning sign below.", "#FEE2E2", "#991B1B")
+
+    with st.expander(f"📖 Warning signs, tips and sources for {cond}"):
+        _care_info_block(info)
+
+
+def render_adaptive_goal():
+    with st.expander("🌤️ AI Adaptive Goal (weather + exercise)"):
+        weather = _weather_now()
+        loc = st.session_state.get("location", "Bangi")
+        if weather:
+            st.markdown(
+                f"<div style='font-size:12.5px; font-weight:600;'>{loc} now: {weather.get('temp', 30):.0f}°C "
+                f"(feels {weather.get('feels_like', 32):.0f}°C), humidity {weather.get('humidity', 70):.0f}%, "
+                f"today's high {weather.get('max_temp', 33):.0f}°C</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("Live weather unavailable (offline). Exercise adjustment still works.")
+
+        if not _is_restricted():
+            st.number_input("Exercise / sports today (minutes)", min_value=0, max_value=600, step=15, key="exercise_min")
+
+        base = st.session_state.get("adaptive_base") or st.session_state.goal
+        new_goal, reasons, allowed = base, [], False
+        if hasattr(smart, "adaptive_goal"):
+            try:
+                new_goal, reasons, allowed = smart.adaptive_goal(
+                    base, weather, st.session_state.get("exercise_min", 0), st.session_state.get("condition", "Default")
+                )
+            except Exception:
+                pass
+        for r in reasons:
+            st.markdown(f"<div style='font-size:12.5px; font-weight:600; color:#0369A1 !important;'>• {r}</div>",
+                        unsafe_allow_html=True)
+
+        if allowed:
+            st.markdown(
+                f"<div style='font-size:14px; font-weight:800; margin:8px 0;'>Suggested goal today: "
+                f"<span style='color:#2563EB !important;'>{new_goal} ml</span> (base {base} ml)</div>",
+                unsafe_allow_html=True,
+            )
+            if new_goal != st.session_state.goal:
+                if st.button(f"Apply {new_goal} ml goal", type="primary", use_container_width=True, key="apply_adaptive"):
+                    st.session_state.adaptive_base = base
+                    st.session_state.goal = new_goal
+                    st.session_state.setting_goal_input = new_goal
+                    st.rerun()
+            if st.session_state.get("adaptive_base") and st.session_state.goal != st.session_state.adaptive_base:
+                if st.button(f"Revert to base goal ({st.session_state.adaptive_base} ml)", use_container_width=True,
+                             key="revert_adaptive"):
+                    st.session_state.goal = st.session_state.adaptive_base
+                    st.session_state.setting_goal_input = st.session_state.adaptive_base
+                    st.session_state.adaptive_base = None
+                    st.rerun()
+        st.caption("General guidance, not medical advice.")
+
+
+def render_ai_report():
+    t = get_t()
+    st.markdown(
+        f"<h4 style='margin-top: 26px; margin-bottom: 4px; font-size: 15px; font-weight: 700; color: #0F172A !important;'>{t['ai_report']}</h4>",
+        unsafe_allow_html=True,
+    )
+    today = get_now().date()
+    entries, source, _ = _get_analysis_data(False, today)
+    rep = None
+    if hasattr(smart, "weekly_report"):
+        try:
+            rep = smart.weekly_report(_group_by_day(entries), st.session_state.goal, today)
+        except Exception:
+            rep = None
+    if not rep:
+        st.info("Log at least 3 days of drinks to unlock your AI weekly report.")
+        return
+    rows = ['<div class="app-card" style="padding:16px 18px;">',
+            '<div style="display:flex; gap:10px; margin-bottom:12px;">']
+    for lbl, val in (("Avg / day", f"{rep['avg']:,} ml"), ("Goal hit", f"{rep['hit_rate']}%"),
+                     ("Trend", f"{rep['slope']:+.0f} ml/day")):
+        rows.append(
+            f'<div style="flex:1; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:12px; padding:8px; text-align:center;">'
+            f'<div style="font-size:10.5px; font-weight:700; color:#64748B !important; text-transform:uppercase;">{lbl}</div>'
+            f'<div style="font-size:15px; font-weight:800; color:#2563EB !important;">{val}</div></div>'
+        )
+    rows.append("</div>")
+    for line in rep["lines"]:
+        rows.append(f'<div style="font-size:12.5px; font-weight:600; margin-bottom:6px;">• {line}</div>')
+    if rep["tip"]:
+        rows.append(f'<div style="font-size:12.5px; font-weight:600; color:#0369A1 !important; background:#E0F2FE; '
+                    f'border-radius:10px; padding:8px 10px; margin-top:6px;">💡 {rep["tip"]}</div>')
+    note = "Based on sample data until you have your own logs." if source == "sample" else f"Based on your last {rep['days']} logged days."
+    rows.append(f'<div style="font-size:11px; color:#64748B !important; margin-top:8px;">{note}</div></div>')
+    st.markdown("".join(rows), unsafe_allow_html=True)
+
+    try:
+        import pandas as pd
+        df = pd.DataFrame(
+            {"Intake (ml)": [v for _, v in rep["series"]], "Goal (ml)": [st.session_state.goal] * len(rep["series"])},
+            index=[datetime.strptime(d, "%Y-%m-%d").strftime("%d %b") for d, _ in rep["series"]],
+        )
+        st.line_chart(df, height=180, color=["#94A3B8", "#2563EB"])
+    except Exception:
+        pass
+
+
+def render_smart_schedule():
+    with st.expander("🤖 AI Smart Reminder Schedule"):
+        entries, source, _ = _get_analysis_data(False)
+        plan = []
+        if hasattr(smart, "build_smart_schedule"):
+            try:
+                plan = smart.build_smart_schedule(
+                    _group_by_day(entries), st.session_state.goal, st.session_state.selected_cup,
+                    st.session_state.get("condition", "Default"),
+                )
+            except Exception:
+                plan = []
+        if not plan:
+            st.info("No AI schedule generated yet.")
+            return
+        st.markdown(
+            "<div style='font-size:12.5px; font-weight:600; margin-bottom:8px;'>AI picked these times from your "
+            "drinking pattern, focusing on the hours you usually forget.</div>",
+            unsafe_allow_html=True,
+        )
+        if _is_restricted():
+            st.caption("Fluid-limit mode: fewer, smaller sips spread evenly across your limit.")
+        for p in plan:
+            st.markdown(
+                f"<div class='app-card' style='padding:10px 14px; margin-bottom:6px;'>"
+                f"<div style='display:flex; justify-content:space-between;'><b>⏰ {p['time']}</b>"
+                f"<span style='color:#2563EB !important; font-weight:800;'>~{p['amount']} ml</span></div>"
+                f"<div style='font-size:11.5px; color:#64748B !important;'>{p['why']}</div></div>",
+                unsafe_allow_html=True,
+            )
+        if source == "sample":
+            st.caption("Using sample data until you have 3 days of your own logs.")
+        if st.button(f"Add these {len(plan)} AI reminders", type="primary", use_container_width=True, key="apply_ai_schedule"):
+            existing = {a if isinstance(a, str) else a.get("time") for a in st.session_state.reminders}
+            added = 0
+            for p in plan:
+                if p["time"] not in existing:
+                    st.session_state.reminders.append(
+                        {"time": p["time"], "days": list(all_days_list), "sound": "Aqua Chime"}
+                    )
+                    added += 1
+            st.session_state.alarm_success_msg = f"Added {added} AI smart reminders!"
+            st.rerun()
+
+
+def _local_ai_model():
+    wanted = None
+    try:
+        wanted = st.secrets.get("OLLAMA_MODEL", None)
+    except Exception:
+        pass
+    if hasattr(smart, "pick_ollama_model") and hasattr(smart, "ollama_status"):
+        try:
+            return smart.pick_ollama_model(smart.ollama_status(), wanted or os.environ.get("OLLAMA_MODEL"))
+        except Exception:
+            pass
+    return None
+
+
+def _coach_ask(question):
+    question = (question or "").strip()
+    if not question:
+        return
+    total = sum(log["amount"] for log in st.session_state.water_logs)
+    ctx = build_ai_context(total)
+    key, model = _llm_settings()
+    reply, err = None, None
+    history = st.session_state.coach_messages
+
+    if hasattr(smart, "instant_reply"):
+        try:
+            reply = smart.instant_reply(question, ctx)
+        except Exception:
+            reply = None
+
+    if not reply and key and hasattr(smart, "llm_coach_reply"):
+        with st.spinner("Coach is thinking..."):
+            try:
+                reply, err = smart.llm_coach_reply(question, ctx, history, key, model)
+            except Exception as e:
+                err = str(e)
+
+    if not reply:
+        local = _local_ai_model()
+        if local and hasattr(smart, "ollama_coach_reply"):
+            with st.spinner("Local AI is thinking..."):
+                try:
+                    reply, err = smart.ollama_coach_reply(question, ctx, history, local)
+                except Exception as e:
+                    err = str(e)
+
+    if not reply and hasattr(smart, "coach_reply"):
+        try:
+            reply = smart.coach_reply(question, ctx)
+        except Exception:
+            reply = None
+
+    if not reply:
+        q_lower = question.lower()
+        remaining = max(0, st.session_state.goal - total)
+        
+        if any(w in q_lower for w in ["how much", "need", "left", "berapa", "あと"]):
+            if remaining == 0:
+                reply = f"You've met your daily hydration goal of {st.session_state.goal} ml! Great job staying hydrated today."
+            else:
+                reply = f"You have drank {total} ml so far today. You need {remaining} ml more to reach your daily target of {st.session_state.goal} ml."
+        elif any(w in q_lower for w in ["when", "next", "bila", "次"]):
+            reply = "Try taking a sip of water every 1 to 2 hours! Setting a steady drinking rhythm helps maintain consistent hydration throughout the day."
+        elif any(w in q_lower for w in ["reach", "goal", "achieve", "capai", "達成"]):
+            pct = int((total / st.session_state.goal) * 100) if st.session_state.goal else 0
+            reply = f"You are currently at {pct}% of your daily goal ({total}/{st.session_state.goal} ml). Keep sipping regularly and you'll easily reach it!"
+        elif any(w in q_lower for w in ["pattern", "weekly", "corak", "パターン"]):
+            reply = "Check out the History tab to see your weekly completion rate and detailed drinking patterns!"
+        else:
+            reply = f"To stay optimally hydrated with your current goal of {st.session_state.goal} ml, try drinking 200-300 ml every few hours. You're currently at {total} ml today!"
+
+    st.session_state.coach_llm_error = err
+    st.session_state.coach_messages.append(("user", question))
+    st.session_state.coach_messages.append(("coach", reply))
+
+
+def render_coach():
+    t = get_t()
+    key, _ = _llm_settings()
+    if not key and not st.session_state.get("ollama_warmed"):
+        _m = _local_ai_model()
+        if _m and hasattr(smart, "warm_up_ollama"):
+            try:
+                smart.warm_up_ollama(_m)
+                st.session_state.ollama_warmed = True
+            except Exception:
+                pass
+
+    st.markdown(
+        f"<h3 style='font-size: 18px; font-weight: 800; color: #2563EB !important; margin-bottom: 2px;'>{t['ai_coach_title']}</h3>"
+        f"<p style='font-size: 12px; color: #64748B !important; margin-bottom: 12px;'>{t['ai_coach_sub']}</p>",
+        unsafe_allow_html=True,
+    )
+
+    if not st.session_state.coach_messages:
+        total = sum(log["amount"] for log in st.session_state.water_logs)
+        st.session_state.coach_messages.append(
+            ("coach", f"Hi {st.session_state.user.get('name', '')}! You're at {total} of {st.session_state.goal} ml today. "
+                      "Tap a question below or type your own.")
+        )
+
+    for role, text in st.session_state.coach_messages[-20:]:
+        safe = _html.escape(text)
+        if role == "user":
+            st.markdown(
+                f"<div style='display:flex; justify-content:flex-end; margin-bottom:8px;'>"
+                f"<div style='background:linear-gradient(135deg,#2563EB,#0284C7); color:#FFFFFF !important; "
+                f"padding:10px 14px; border-radius:16px 16px 4px 16px; max-width:80%; font-size:13px; font-weight:600;'>"
+                f"<span style='color:#FFFFFF !important; -webkit-text-fill-color:#FFFFFF;'>{safe}</span></div></div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"<div style='display:flex; justify-content:flex-start; margin-bottom:8px;'>"
+                f"<div style='background:#FFFFFF; border:1px solid #E2E8F0; padding:10px 14px; "
+                f"border-radius:16px 16px 16px 4px; max-width:85%; font-size:13px; font-weight:600;'>💧 {safe}</div></div>",
+                unsafe_allow_html=True,
+            )
+
+    quick = [t["quick_q1"], t["quick_q2"], t["quick_q3"], t["quick_q4"]]
+    q1, q2 = st.columns(2)
+    for i, q in enumerate(quick):
+        with (q1 if i % 2 == 0 else q2):
+            if st.button(q, key=f"coach_quick_{i}", use_container_width=True):
+                _coach_ask(q)
+                st.rerun()
+
+    with st.form("coach_form", clear_on_submit=True):
+        started = any(r == "user" for r, _ in st.session_state.coach_messages)
+        typed = st.text_input(
+            t["your_question"],
+            placeholder="" if started else "e.g. Hari ni panas, perlu minum lebih?",
+            key="coach_input",
+            label_visibility="collapsed" if started else "visible",
+        )
+        if st.form_submit_button(t["ask_coach"], type="primary", use_container_width=True):
+            _coach_ask(typed)
+            st.rerun()
+
+    if st.button(t["clear_chat"], use_container_width=True, key="coach_clear"):
+        st.session_state.coach_messages = []
+        st.rerun()
+
+    local = _local_ai_model()
+    err = st.session_state.get("coach_llm_error")
+    if key:
+        mode = "Mode: Gemini AI + your data"
+    elif local:
+        mode = f"Mode: on-device AI ({local}) + your data, works without internet"
+    else:
+        mode = "Mode: offline smart coach"
+    if err:
+        mode += f" | last AI reply failed ({err}), used offline coach"
+    st.caption(mode)
+
+
+# ==========================================
+# 8. AUTHENTICATION SCREEN WITH FIREBASE & LANGUAGE TOGGLE
+# ==========================================
+def render_auth():
+    t = get_t()
+    current_lang = st.session_state.get("lang", "en")
+
+    c_left, c_lang = st.columns([3, 1])
+    with c_lang:
+        if st.button(t["lang_btn"], key="auth_lang_toggle", use_container_width=True):
+            st.session_state.lang = "ja" if current_lang == "en" else "en"
+            st.rerun()
+
+    st.markdown(
+        f"""
+        <div style="text-align: center; padding: 12px 0 16px 0;">
+            <img src="data:image/png;base64,{logo_b64}" style="width: 64px; height: 64px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 6px 12px rgba(37,99,235,0.25));" />
+            <h2 style="background: linear-gradient(135deg, #2563EB 0%, #0284C7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; font-size: 28px; margin: 0; letter-spacing: -0.02em;">AquaSip</h2>
+            <p style="font-size: 13px; color: #64748B !important; margin-top: 4px; font-weight: 500;">{t['subtitle']}</p>
+        </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    if st.session_state.get("auth_notice"):
+        st.error(st.session_state.auth_notice)
+
+    if st.session_state.auth_mode == "Create Account":
+        st.markdown(
+            f"<h3 style='text-align: center; font-size: 18px; font-weight: 700; color: #0F172A !important;'>{t['create_acc']}</h3>",
+            unsafe_allow_html=True,
+        )
+        email = st.text_input(t["email"], placeholder="name@example.com", key="reg_email")
+        password = st.text_input(t["pass_min"], type="password", key="reg_pass")
+
+        if st.button(t["get_started"], use_container_width=True, type="primary"):
+            if not email or not password:
+                st.error(t["fill_err"])
+            else:
+                success, result = firebase_sign_up(email, password)
+                if success:
+                    user_uid = result.get("localId", "")
+                    create_firestore_user_doc(user_uid, email, days_valid=7)
+                    st.session_state.user["email"] = email
+                    st.session_state.user["name"] = email.split("@")[0].capitalize()
+                    st.session_state.user["uid"] = user_uid
+                    st.session_state.logged_in = True
+                    st.success("Account created successfully!")
+                    st.rerun()
+                else:
+                    st.error(f"Sign Up Failed: {result}")
+    else:
+        st.markdown(
+            f"<h3 style='text-align: center; font-size: 18px; font-weight: 700; color: #0F172A !important;'>{t['welcome_back']}</h3>",
+            unsafe_allow_html=True,
+        )
+        email = st.text_input(
+            t["email"],
+            value=st.session_state.user.get("email", ""),
+            key="login_email",
+        )
+        password = st.text_input(t["password"], type="password", key="login_pass")
+
+        if st.button(t["sign_in"], use_container_width=True, type="primary"):
+            if not email or not password:
+                st.error(t["fill_login_err"])
+            else:
+                with st.spinner("Signing in..."):
+                    success, result = firebase_sign_in(email, password)
+                if success:
+                    st.session_state.user["email"] = email
+                    st.session_state.user["name"] = email.split("@")[0].capitalize()
+                    st.session_state.user["uid"] = result.get("localId", "")
+                    st.session_state.logged_in = True
+                    st.rerun()
+                else:
+                    st.error(f"Login Failed: {result}")
+
+    st.markdown(
+        "<hr style='border: none; border-top: 1px solid #E2E8F0; margin: 24px 0;'>",
+        unsafe_allow_html=True,
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button(
+            t["create_acc"],
+            use_container_width=True,
+            type=(
+                "primary"
+                if st.session_state.auth_mode == "Create Account"
+                else "secondary"
+            ),
+        ):
+            st.session_state.auth_mode = "Create Account"
+            st.rerun()
+    with c2:
+        if st.button(
+            t["log_in"],
+            use_container_width=True,
+            type=(
+                "primary"
+                if st.session_state.auth_mode == "Log In"
+                else "secondary"
+            ),
+        ):
+            st.session_state.auth_mode = "Log In"
+            st.rerun()
+
+
+# ==========================================
+# 9. NAVIGATION HEADER
+# ==========================================
+def render_app_header():
+    t = get_t()
+    col_title, col_lang, col_logout = st.columns([2.5, 1, 1.2])
+    with col_title:
+        st.markdown(
+            f"""
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <img src="data:image/png;base64,{logo_b64}" style="width: 34px; height: 34px; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(37,99,235,0.2));" />
+                <h3 style="background: linear-gradient(135deg, #2563EB 0%, #0284C7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin:0; font-weight:800; font-size: 22px; letter-spacing: -0.02em;">AquaSip</h3>
+            </div>
+        """,
+            unsafe_allow_html=True,
+        )
+    with col_lang:
+        current_lang = st.session_state.get("lang", "en")
+        if st.button("🇯🇵" if current_lang == "en" else "ENG", key="header_lang_toggle", use_container_width=True):
+            st.session_state.lang = "ja" if current_lang == "en" else "en"
+            st.rerun()
+    with col_logout:
+        if st.button(t["logout"], key="top_logout"):
+            st.session_state.logged_in = False
+            st.session_state.sub_page = None
+            st.session_state.user = {
+                "name": "Guest",
+                "email": "",
+                "uid": "",
+                "birthday": "2000-01-01",
+                "profile_pic_b64": "",
+            }
+            st.rerun()
+
+    tab_map = [
+        ("Home", t["nav_home"]),
+        ("Coach", t["nav_coach"]),
+        ("History", t["nav_history"]),
+        ("Shop", t["nav_shop"]),
+        ("Setting", t["nav_setting"]),
+    ]
+    cols = st.columns(5)
+    for idx, (tab_key, tab_label) in enumerate(tab_map):
+        with cols[idx]:
+            is_active = st.session_state.current_tab == tab_key
+            if st.button(
+                tab_label,
+                key=f"nav_btn_{tab_key}",
+                type="primary" if is_active else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.current_tab = tab_key
+                st.session_state.sub_page = None
+                st.rerun()
+
+    st.markdown(
+        "<div style='margin-bottom: 16px;'></div>", unsafe_allow_html=True
+    )
+    return st.session_state.current_tab
+
+
+# ==========================================
+# 10. PROFILE SCREEN
+# ==========================================
+def render_profile():
+    t = get_t()
+    st.markdown(
+        f"<h3 style='font-size: 20px; font-weight: 800; color: #2563EB !important; text-align: center; margin-bottom: 16px;'>{t['edit_profile']}</h3>",
+        unsafe_allow_html=True,
+    )
+
+    pic_b64 = st.session_state.user.get("profile_pic_b64", "")
+    if pic_b64:
+        img_html = f'<img src="{pic_b64}" style="width: 88px; height: 88px; border-radius: 50%; object-fit: cover; border: 3px solid #2563EB; box-shadow: 0 4px 14px rgba(37,99,235,0.25);" />'
+    else:
+        img_html = '<div style="width: 88px; height: 88px; border-radius: 50%; background: #E0F2FE; color: #2563EB; display: flex; align-items: center; justify-content: center; font-size: 40px; border: 3px solid #2563EB; margin: 0 auto;">👤</div>'
+
+    st.markdown(
+        f"""
+        <div style="text-align: center; margin-bottom: 18px;">
+            {img_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    uploaded_pic = st.file_uploader(t["profile_picture"], type=["jpg", "jpeg", "png"], key="profile_pic_uploader")
+    if uploaded_pic is not None:
+        pic_bytes = uploaded_pic.read()
+        mime = uploaded_pic.type or "image/png"
+        encoded = base64.b64encode(pic_bytes).decode()
+        st.session_state.user["profile_pic_b64"] = f"data:{mime};base64,{encoded}"
+        st.success("Profile picture updated!")
+
+    new_name = st.text_input(t["name"], value=st.session_state.user.get("name", ""), key="profile_name_input")
+    new_email = st.text_input(t["email"], value=st.session_state.user.get("email", ""), key="profile_email_input")
+    
+    curr_bday_str = st.session_state.user.get("birthday", "2000-01-01")
+    today = get_now().date()
+    try:
+        curr_bday = datetime.strptime(curr_bday_str, "%Y-%m-%d").date()
+        current_age = today.year - curr_bday.year - (
+            (today.month, today.day) < (curr_bday.month, curr_bday.day)
+        )
+        if current_age < 1 or current_age > 120:
+            current_age = 18
+    except Exception:
+        current_age = 18
+
+    new_age = st.number_input(
+        "Age",
+        min_value=1,
+        max_value=120,
+        value=int(current_age),
+        step=1,
+        help="Enter your age in years.",
+        key="profile_age_input"
+    )
+
+    gender_options = ["Prefer not to say", "Female", "Male"]
+    saved_gender = st.session_state.user.get("gender", "Prefer not to say")
+    if saved_gender not in gender_options:
+        saved_gender = "Prefer not to say"
+    new_gender = st.selectbox(
+        "Gender",
+        options=gender_options,
+        index=gender_options.index(saved_gender),
+        key="profile_gender_input",
+        help="Choose an option, or select Prefer not to say."
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    c_save, c_back = st.columns(2)
+    with c_save:
+        if st.button(t["save_profile"], type="primary", use_container_width=True):
+            st.session_state.user["name"] = new_name
+            st.session_state.user["email"] = new_email
+            st.session_state.user["gender"] = new_gender
+            birth_year = today.year - int(new_age)
+            try:
+                approximate_birthday = today.replace(year=birth_year)
+            except ValueError:
+                approximate_birthday = today.replace(year=birth_year, day=28)
+            st.session_state.user["birthday"] = approximate_birthday.strftime("%Y-%m-%d")
+            save_user_profile_to_firestore(
+                st.session_state.user.get("uid", ""),
+                new_name,
+                st.session_state.user["birthday"],
+                st.session_state.user.get("profile_pic_b64", ""),
+                new_gender
+            )
+            st.success(t["profile_updated"])
+            st.session_state.sub_page = None
+            st.rerun()
+    with c_back:
+        if st.button(t["back_home"], use_container_width=True):
+            st.session_state.sub_page = None
+            st.rerun()
+
+
+# ==========================================
+# 11. HOME SCREEN
+# ==========================================
+def render_home():
+    t = get_t()
+    if st.session_state.sub_page == "Switch Cup":
+        render_switch_cup()
+        return
+    elif st.session_state.sub_page == "Profile":
+        render_profile()
+        return
+
+    user_name = st.session_state.user.get("name", "User")
+    pic_b64 = st.session_state.user.get("profile_pic_b64", "")
+
+    c_user_info, c_user_btn = st.columns([2.5, 1.2])
+    with c_user_info:
+        if pic_b64:
+            avatar_html = f'<img src="{pic_b64}" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid #2563EB;" />'
+        else:
+            avatar_html = '<div style="width: 44px; height: 44px; border-radius: 50%; background: #E0F2FE; color: #2563EB; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 2px solid #2563EB; font-weight: 800;">👤</div>'
+
+        st.markdown(
+            f"""
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                {avatar_html}
+                <div>
+                    <div style="font-size: 11.5px; font-weight: 600; color: #64748B !important;">Welcome back,</div>
+                    <div style="font-size: 17px; font-weight: 800; color: #0F172A !important;">{user_name}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with c_user_btn:
+        if st.button(f" {t['profile']}", key="btn_goto_profile", use_container_width=True):
+            st.session_state.sub_page = "Profile"
+            st.rerun()
+
+    total_drank = sum([log["amount"] for log in st.session_state.water_logs])
+    pct = min(100, int((total_drank / st.session_state.goal) * 100))
+
+    st.markdown(
+        f"""
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <div class="app-card" style="flex: 1; text-align: center; margin-bottom: 0; padding: 18px 12px;">
+                <div style="font-size: 12px; font-weight: 600; color: #64748B !important; text-transform: uppercase; letter-spacing: 0.04em;">{t['goal_target']}</div>
+                <div style="font-size: 22px; font-weight: 800; color: #2563EB !important; margin-top: 2px;">{st.session_state.goal} <span style="font-size: 14px; font-weight: 600;">ml</span></div>
+            </div>
+            <div class="app-card" style="flex: 1; text-align: center; margin-bottom: 0; padding: 18px 12px;">
+                <div style="font-size: 12px; font-weight: 600; color: #64748B !important; text-transform: uppercase; letter-spacing: 0.04em;">{t['progress']}</div>
+                <div style="font-size: 22px; font-weight: 800; color: #0284C7 !important; margin-top: 2px;">{pct}%</div>
+            </div>
+        </div>
+
+        <div class="app-card" style="margin-bottom: 16px; padding: 14px 18px;">
+            <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; color: #0F172A !important;">
+                <span>{t['daily_intake']}: {total_drank} ml</span>
+                <span style="color: #2563EB !important;">{st.session_state.goal - total_drank if total_drank < st.session_state.goal else 0} ml {t['remaining']}</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: {pct}%;"></div>
+            </div>
+        </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    c_btn, c_reset = st.columns([1.3, 1])
+    with c_btn:
+        if st.button(t["switch_cup"], use_container_width=True):
+            st.session_state.sub_page = "Switch Cup"
+            st.rerun()
+
+    with c_reset:
+        if st.button(t["reset_water"], use_container_width=True):
+            st.session_state.water_logs = []
+            undo_today_history()
+            st.rerun()
+
+    if st.button(
+        f"{t['quick_drink']} ({st.session_state.selected_cup}ml)",
+        type="primary",
+        use_container_width=True,
+    ):
+        log_drink(st.session_state.selected_cup)
+        st.rerun()
+
+    if _is_restricted():
+        render_fluid_care(total_drank)
+    else:
+        render_ai_insight(total_drank)
+        render_ai_forecast(total_drank)
+        render_condition_care(total_drank)
+    render_adaptive_goal()
+
+    if st.session_state.water_logs:
+        st.markdown(
+            f"<h4 style='margin-top: 22px; margin-bottom: 12px; font-size: 15px; font-weight: 700; color: #0F172A !important;'>{t['today_logs']}</h4>",
+            unsafe_allow_html=True,
+        )
+        for log in st.session_state.water_logs:
+            st.markdown(
+                f"""
+                <div class="app-card" style="display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="background: rgba(224, 242, 254, 0.8); border-radius: 10px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 18px;">🥛</div>
+                        <span style="font-weight: 700; color: #2563EB !important; font-size: 14px;">{log['time']}</span>
+                    </div>
+                    <div style="font-weight: 800; color: #0F172A !important; font-size: 15px;">{log['amount']} <span style="font-size: 12px; font-weight: 600; color: #64748B !important;">ml</span></div>
+                </div>
+            """,
+                unsafe_allow_html=True,
+            )
+
+
+# ==========================================
+# 12. SWITCH CUP SCREEN WITH CUSTOM CUP SIZE
+# ==========================================
+def render_switch_cup():
+    t = get_t()
+    st.markdown(
+        f"<h3 style='font-size: 18px; font-weight: 700; color: #2563EB !important; margin-bottom: 14px;'>{t['select_custom_cup']}</h3>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div class="app-card" style="text-align: center; padding: 12px; margin-bottom: 16px; background: #EFF6FF !important;">
+            <span style="font-size: 13px; font-weight: 600; color: #1E40AF !important;">{t['currently_selected']}: <b>{st.session_state.selected_cup} ml</b></span>
+        </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    cups = [
+        {
+            "name": "100 ml",
+            "val": 100,
+            "filenames": ["Screenshot 2025-06-15 150745.png", "cup_100.png", "100ml.png"],
+            "icon": "☕",
+        },
+        {
+            "name": "200 ml",
+            "val": 200,
+            "filenames": ["Screenshot 2025-06-15 151040.png", "cup_200.png", "200ml.png"],
+            "icon": "🥛",
+        },
+        {
+            "name": "300 ml",
+            "val": 300,
+            "filenames": ["Screenshot 2025-06-15 151104.png", "cup_300.png", "300ml.png"],
+            "icon": "🥤",
+        },
+        {
+            "name": "400 ml",
+            "val": 400,
+            "filenames": ["Screenshot 2025-06-15 151131.png", "cup_400.png", "400ml.png"],
+            "icon": "🍾",
+        },
+        {
+            "name": "500 ml",
+            "val": 500,
+            "filenames": ["Screenshot 2025-06-15 151144.png", "cup_500.png", "500ml.png"],
+            "icon": "🧴",
+        },
+        {
+            "name": "600 ml",
+            "val": 600,
+            "filenames": ["Screenshot 2025-06-15 151156.png", "cup_600.png", "600ml.png"],
+            "icon": "🏺",
+        },
+    ]
+
+    cols = st.columns(3)
+    for idx, cup in enumerate(cups):
+        with cols[idx % 3]:
+            img_path = None
+            for fname in cup["filenames"]:
+                p1 = asset_path(fname)
+                if p1 and os.path.isfile(p1):
+                    img_path = p1
+                    break
+
+            if img_path:
+                img_b64 = get_image_base64(img_path)
+                st.markdown(
+                    f"""
+                    <div class="app-card" style="text-align: center; padding: 12px 8px; margin-bottom: 8px;">
+                        <img src="data:image/png;base64,{img_b64}" style="height: 48px; object-fit: contain; margin-bottom: 4px;" />
+                        <div style="font-size: 13px; font-weight: 700; margin-top: 2px;">{cup['name']}</div>
+                    </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"""
+                    <div class="app-card" style="text-align: center; padding: 14px 8px; margin-bottom: 8px;">
+                        <div style="font-size: 26px;">{cup['icon']}</div>
+                        <div style="font-size: 13px; font-weight: 700; margin-top: 6px;">{cup['name']}</div>
+                    </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+            if st.button(
+                t["select"],
+                key=f"select_cup_{cup['val']}",
+                use_container_width=True,
+                type="primary" if st.session_state.selected_cup == cup["val"] else "secondary",
+            ):
+                st.session_state.selected_cup = cup["val"]
+                st.session_state.sub_page = None
+                st.rerun()
+
+    st.markdown(
+        "<hr style='border: none; border-top: 1px solid #E2E8F0; margin: 18px 0;'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<h4 style='font-size: 15px; font-weight: 700; color: #0F172A !important; margin-bottom: 8px;'>{t['custom_cup_size']}</h4>",
+        unsafe_allow_html=True,
+    )
+
+    custom_cup = st.number_input(
+        t["enter_custom_vol"],
+        min_value=1,
+        max_value=5000,
+        value=int(st.session_state.selected_cup),
+        step=50,
+        key="custom_cup_input",
+    )
+
+    if st.button(t["set_custom_cup"], type="primary", use_container_width=True):
+        st.session_state.selected_cup = int(custom_cup)
+        st.session_state.sub_page = None
+        st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button(t["back_home"], use_container_width=True):
+        st.session_state.sub_page = None
+        st.rerun()
+
+
+# ==========================================
+# 13. HISTORY SCREEN
+# ==========================================
+def render_history():
+    t = get_t()
+    st.markdown(
+        f"<h4 style='font-size: 15px; font-weight: 700; margin-bottom: 2px; color: #0F172A !important;'>{t['weekly_tracker']}</h4>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<p style='font-size: 12px; color: #64748B !important; margin-bottom: 14px; font-weight: 500;'>{t['weekly_tracker_sub']}</p>",
+        unsafe_allow_html=True,
+    )
+
+    days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    today_str = get_now().strftime("%a")
+    today_idx = days.index(today_str) if today_str in days else 0
+
+    sync_weekly_status()
+
+    cols = st.columns(7)
+
+    for idx, day in enumerate(days):
+        with cols[idx]:
+            is_today = (idx == today_idx)
+            header_color = "#2563EB" if is_today else "#64748B"
+            st.markdown(
+                f"<div style='text-align: center; font-size: 11px; font-weight: 700; color: {header_color} !important; margin-bottom: 4px;'>{day}</div>",
+                unsafe_allow_html=True,
+            )
+            status = st.session_state.weekly_status[idx]
+            icon = "✅" if status in ("pass", "trophy", "tick") else "❌"
+
+            st.markdown(
+                f"""
+                <div style="text-align: center; background: #FFFFFF; border: 1px solid {'#2563EB' if is_today else '#CBD5E1'}; border-radius: 12px; padding: 10px 0; font-size: 18px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);">
+                    {icon}
+                </div>
+            """,
+                unsafe_allow_html=True,
+            )
+
+    render_drinking_pattern()
+    render_ai_report()
+
+    st.markdown(
+        f"<h4 style='margin-top: 26px; margin-bottom: 12px; font-size: 15px; font-weight: 700; color: #0F172A !important;'>{t['hydration_overview']}</h4>",
+        unsafe_allow_html=True,
+    )
+
+    report_data = get_overview_stats()
+
+    for label, val in report_data:
+        st.markdown(
+            f"""
+            <div class="app-card" style="display: flex; justify-content: space-between; align-items: center; padding: 14px 18px;">
+                <span style="color: #64748B !important; font-size: 13px; font-weight: 600;">{label}</span>
+                <span style="color: #2563EB !important; font-weight: 800; font-size: 14px;">{val}</span>
+            </div>
+        """,
+            unsafe_allow_html=True,
+        )
+
+
+# ==========================================
+# 14. SHOP SCREEN
+# ==========================================
+def add_to_cart(prod):
+    for item in st.session_state.cart:
+        if item["name"] == prod["name"]:
+            item["qty"] += 1
+            st.session_state.shop_msg = (
+                f"Updated quantity for {prod['name']} in cart!"
+            )
+            return
+    st.session_state.cart.append(
+        {
+            "name": prod["name"],
+            "price": prod["price"],
+            "qty": 1,
+            "desc": prod["desc"],
+            "image_filename": prod.get("image_filename", ""),
+        }
+    )
+    st.session_state.shop_msg = f"Added {prod['name']} to your cart!"
+
+
+def render_shop():
+    t = get_t()
+    if st.session_state.sub_page == "Cart":
+        render_cart()
+        return
+
+    c_title, c_cart = st.columns([2, 1])
+    with c_title:
+        st.markdown(
+            f"<h3 style='margin:0; font-size: 20px; font-weight: 800; color: #2563EB !important;'>{t['bottle_shop']}</h3>",
+            unsafe_allow_html=True,
+        )
+    with c_cart:
+        total_items = sum([item["qty"] for item in st.session_state.cart])
+        if st.button(
+            f"{t['cart']} ({total_items})",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state.sub_page = "Cart"
+            st.session_state.shop_msg = None
+            st.rerun()
+
+    if st.session_state.shop_msg:
+        st.success(st.session_state.shop_msg)
+
+    search_query = st.text_input(
+        t["search_bottles"],
+        placeholder=t["search_placeholder"],
+        key="shop_search",
+    )
+    sort_option = st.selectbox(
+        t["sort_by"],
+        ["Popularity", "Price: Low to High", "Price: High to Low"],
+        key="shop_sort",
+    )
+
+    st.markdown(
+        "<div style='margin-bottom: 14px;'></div>", unsafe_allow_html=True
+    )
+
+    products = [
+        {
+            "name": "AquaBig",
+            "price": 85.00,
+            "desc": "Thermoregulated double-walled construction keeps drinks cold for 24h.",
+            "popularity": 1,
+            "image_filename": "Untitled design (2).png",
+        },
+        {
+            "name": "AquaMid",
+            "price": 60.00,
+            "desc": "Versatile mid-sized container constructed with food-grade steel.",
+            "popularity": 2,
+            "image_filename": "Untitled design (1).png",
+        },
+        {
+            "name": "AquaSlim",
+            "price": 45.00,
+            "desc": "Sleek and lightweight insulated bottle designed for daily travel.",
+            "popularity": 3,
+            "image_filename": "Untitled design.png",
+        },
+    ]
+
+    if search_query:
+        products = [
+            p
+            for p in products
+            if search_query.lower() in p["name"].lower()
+            or search_query.lower() in p["desc"].lower()
+        ]
+
+    if sort_option == "Price: Low to High":
+        products = sorted(products, key=lambda x: x["price"])
+    elif sort_option == "Price: High to Low":
+        products = sorted(products, key=lambda x: x["price"], reverse=True)
+
+    if not products:
+        st.info("No matching bottles found.")
+        return
+
+    for prod in products:
+        col_img, col_info = st.columns([1, 2.2])
+
+        with col_img:
+            prod_img_path = asset_path(prod.get("image_filename", ""))
+
+            if prod_img_path and os.path.isfile(prod_img_path):
+                st.image(prod_img_path, use_container_width=True)
+            else:
+                st.markdown(
+                    """
+                    <div style="background-color: #F1F5F9; border-radius: 14px; height: 110px; display: flex; align-items: center; justify-content: center; font-size: 38px;">
+                        🧴
+                    </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+
+        with col_info:
+            st.markdown(
+                f"<h4 style='margin:0; font-size: 16px; font-weight:800; color: #0F172A !important;'>{prod['name']}</h4>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<p style='font-size: 11.5px; color: #64748B !important; margin: 3px 0 6px 0; line-height: 1.4;'>{prod['desc']}</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='color: #2563EB !important; font-weight: 800; font-size: 15px; margin-bottom: 8px;'>RM {prod['price']:.2f}</div>",
+                unsafe_allow_html=True,
+            )
+
+            b1, b2 = st.columns(2)
+            with b1:
+                if st.button(
+                    t["add_cart"],
+                    key=f"add_{prod['name']}",
+                    use_container_width=True,
+                ):
+                    add_to_cart(prod)
+                    st.rerun()
+            with b2:
+                if st.button(
+                    t["buy_now"],
+                    key=f"buy_{prod['name']}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    st.session_state.cart = [
+                        {
+                            "name": prod["name"],
+                            "price": prod["price"],
+                            "qty": 1,
+                            "desc": prod["desc"],
+                            "image_filename": prod.get("image_filename", ""),
+                        }
+                    ]
+                    st.session_state.sub_page = "Cart"
+                    st.session_state.shop_msg = None
+                    st.rerun()
+
+        st.markdown(
+            "<hr style='border: none; border-top: 1px solid #E2E8F0; margin: 14px 0;'>",
+            unsafe_allow_html=True,
+        )
+
+
+def render_cart():
+    t = get_t()
+    st.markdown(
+        f"<h3 style='color: #2563EB !important; text-align: center; font-size: 18px; font-weight: 800;'>{t['shopping_cart']}</h3>",
+        unsafe_allow_html=True,
+    )
+
+    if not st.session_state.cart:
+        st.info(t["cart_empty"])
+        if st.button(
+            t["back_to_shop"], type="primary", use_container_width=True
+        ):
+            st.session_state.sub_page = None
+            st.rerun()
+        return
+
+    subtotal = 0.0
+
+    for idx, item in enumerate(st.session_state.cart):
+        item_total = item["price"] * item["qty"]
+        subtotal += item_total
+
+        prod_img_path = asset_path(item.get("image_filename", ""))
+        if prod_img_path and os.path.isfile(prod_img_path):
+            img_b64 = get_image_base64(prod_img_path)
+            img_html = f'<img src="data:image/png;base64,{img_b64}" style="height: 48px; width: 48px; object-fit: contain; border-radius: 8px;" />'
+        else:
+            img_html = '<span style="font-size: 30px;">🧴</span>'
+
+        st.markdown(
+            f"""
+            <div class="app-card" style="margin-bottom: 10px; padding: 14px 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        {img_html}
+                        <div>
+                            <h4 style="margin:0; font-size: 15px; font-weight: 800; color: #0F172A !important;">{item['name']}</h4>
+                            <span style="font-weight: 700; color: #2563EB !important; font-size: 12.5px;">RM {item['price']:.2f} each</span>
+                        </div>
+                    </div>
+                    <div style="text-align: right; font-weight: 800; color: #0F172A !important; font-size: 15px;">
+                        RM {item_total:.2f}
+                    </div>
+                </div>
+            </div>
+        """,
+            unsafe_allow_html=True,
+        )
+
+        c_dec, c_qty, c_inc, c_del = st.columns([1, 1.5, 1, 1.5])
+        with c_dec:
+            if st.button("➖", key=f"dec_{idx}", use_container_width=True):
+                if item["qty"] > 1:
+                    item["qty"] -= 1
+                else:
+                    st.session_state.cart.pop(idx)
+                st.rerun()
+        with c_qty:
+            st.markdown(
+                f"<div style='text-align:center; padding-top:6px; font-weight:800; font-size: 14px;'>Qty: {item['qty']}</div>",
+                unsafe_allow_html=True,
+            )
+        with c_inc:
+            if st.button("➕", key=f"inc_{idx}", use_container_width=True):
+                item["qty"] += 1
+                st.rerun()
+        with c_del:
+            if st.button(
+                t["remove"], key=f"del_{idx}", use_container_width=True
+            ):
+                st.session_state.cart.pop(idx)
+                st.rerun()
+
+        st.markdown(
+            "<hr style='border: none; border-top: 1px dashed #E2E8F0; margin: 10px 0;'>",
+            unsafe_allow_html=True,
+        )
+
+    discount = subtotal * 0.10 if subtotal > 50 else 0.0
+    shipping = 5.00
+    total = subtotal - discount + shipping
+
+    st.markdown(
+        f"""
+        <div class="app-card" style="margin-top: 16px; padding: 18px;">
+            <h5 style="margin: 0 0 12px 0; font-size: 15px; font-weight: 800; color: #0F172A !important;">{t['order_summary']}</h5>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; font-weight: 500;">
+                <span style="color: #64748B !important;">{t['subtotal']}</span><span style="font-weight: 700;">RM {subtotal:.2f}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; font-weight: 500;">
+                <span style="color: #64748B !important;">{t['discount']}</span><span style="color: #10B981 !important; font-weight: 700;">-RM {discount:.2f}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 10px; font-weight: 500;">
+                <span style="color: #64748B !important;">{t['shipping']}</span><span style="font-weight: 700;">RM {shipping:.2f}</span>
+            </div>
+            <hr style="border: none; border-top: 1px solid #E2E8F0; margin: 10px 0;">
+            <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 16px; color: #2563EB !important;">
+                <span>{t['total_amount']}</span><span>RM {total:.2f}</span>
+            </div>
+        </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button(t["back_to_shop"], use_container_width=True):
+            st.session_state.sub_page = None
+            st.rerun()
+    with c2:
+        if st.button(
+            t["proceed_checkout"], type="primary", use_container_width=True
+        ):
+            st.session_state.cart = []
+            st.balloons()
+            st.success("Transaction successful! Your order is on its way.")
+
+
+# ==========================================
+# 15. TIME & DAY HELPERS
+# ==========================================
+def get_nearest_quarter_time():
+    now = get_now()
+    minutes = now.minute
+    remainder = minutes % 15
+    add_mins = (15 - remainder) if remainder != 0 else 0
+    target_dt = now.replace(second=0, microsecond=0) + timedelta(minutes=add_mins)
+    return target_dt.strftime("%I:%M %p")
+
+
+def generate_standard_quarter_times():
+    times = []
+    for h in range(24):
+        for m in (0, 15, 30, 45):
+            dt_obj = datetime(2026, 1, 1, h, m)
+            times.append(dt_obj.strftime("%I:%M %p"))
+    return times
+
+
+def validate_and_format_time(user_input):
+    if not user_input or not user_input.strip():
+        return False, "Please enter an alarm time.", None
+
+    time_str = user_input.strip().upper()
+
+    match_12 = re.match(r"^(\d{1,2}):(\d{2})\s*(AM|PM)$", time_str)
+    if match_12:
+        hr, mn, ampm = int(match_12.group(1)), int(match_12.group(2)), match_12.group(3)
+        if not (1 <= hr <= 12):
+            return False, f"Invalid hour '{hr}'. Hour must be between 1 and 12.", None
+        if not (0 <= mn <= 59):
+            return False, f"Invalid minute '{mn:02d}'. Minutes must be between 00 and 59.", None
+        return True, None, f"{hr:02d}:{mn:02d} {ampm}"
+
+    match_24 = re.match(r"^(\d{1,2}):(\d{2})$", time_str)
+    if match_24:
+        hr, mn = int(match_24.group(1)), int(match_24.group(2))
+        if not (0 <= hr <= 23):
+            return False, f"Invalid hour '{hr}'. 24-hour hour must be between 00 and 23.", None
+        if not (0 <= mn <= 59):
+            return False, f"Invalid minute '{mn:02d}'. Minutes must be between 00 and 59.", None
+        ampm = "AM" if hr < 12 else "PM"
+        hr12 = hr % 12
+        if hr12 == 0:
+            hr12 = 12
+        return True, None, f"{hr12:02d}:{mn:02d} {ampm}"
+
+    return (
+        False,
+        f"Invalid time format '{user_input}'. Please use format like '03:15 PM' or '15:30'.",
+        None,
+    )
+
+
+def format_alarm_days(days_list):
+    all_days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    weekends = ["Sun", "Sat"]
+
+    if set(days_list) == set(all_days):
+        return "Mon-Sun"
+    elif set(days_list) == set(weekdays):
+        return "Mon-Fri (Weekdays)"
+    elif set(days_list) == set(weekends):
+        return "Sat-Sun (Weekends)"
+    else:
+        sorted_days = [d for d in all_days if d in days_list]
+        return ", ".join(sorted_days) if sorted_days else "No Days"
+
+
+def set_days_all():
+    for d in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
+        st.session_state[f"cb_day_{d}"] = True
+
+
+def set_days_weekdays():
+    for d in ["Mon", "Tue", "Wed", "Thu", "Fri"]:
+        st.session_state[f"cb_day_{d}"] = True
+    for d in ["Sun", "Sat"]:
+        st.session_state[f"cb_day_{d}"] = False
+
+
+def set_days_weekends():
+    for d in ["Sun", "Sat"]:
+        st.session_state[f"cb_day_{d}"] = True
+    for d in ["Mon", "Tue", "Wed", "Thu", "Fri"]:
+        st.session_state[f"cb_day_{d}"] = False
+
+
+def set_days_clear():
+    for d in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]:
+        st.session_state[f"cb_day_{d}"] = False
+
+
+# ==========================================
+# 16. ENHANCED DISEASE & HEALTH CONDITION GOAL SELECTION
+# ==========================================
+def render_disease_goal():
+    t = get_t()
+    customizing = st.session_state.get("customizing_condition", None)
+
+    disease_options = [
+        {"name": "Default", "intake": "2000 ml", "target": 2000, "icon": "", "filenames": ["default.png", "AquaSip App Prototype.png"], "desc": "Standard daily hydration based on BMI, activity level, and climate."},
+        {"name": "Heart Failure", "intake": "1500 - 2000 ml", "target": 1500, "icon": "", "filenames": ["heart_failure.png", "AquaSip App Prototype (1).png"], "desc": "Strict fluid control to prevent cardiac overload and edema."},
+        {"name": "Kidney Failure", "intake": "1000 - 1500 ml", "target": 1250, "icon": "", "filenames": ["kidney_failure.png", "AquaSip App Prototype (2).png"], "desc": "Tailored based on dialysis status and daily urine output volume."},
+        {"name": "Diabetes", "intake": "1800 ml", "target": 1800, "icon": "", "filenames": ["diabetes.png", "AquaSip App Prototype (3).png"], "desc": "Adjusted for glucose diuresis and metabolic demands."},
+        {"name": "Liver Cirrhosis", "intake": "1500 ml", "target": 1500, "icon": "", "filenames": ["liver_cirrhosis.png", "AquaSip App Prototype (4).png"], "desc": "Fluid restriction management for ascites and fluid retention."},
+        {"name": "Urinary Tract Infection", "intake": "2500 ml", "target": 2500, "icon": "", "filenames": ["uti.png", "AquaSip App Prototype (5).png"], "desc": "Increased fluid intake to help flush urinary bacterial pathogens."},
+        {"name": "Athletes", "intake": "4000 ml", "target": 4000, "icon": "", "filenames": ["athletes.png", "AquaSip App Prototype (6).png"], "desc": "High-volume rehydration based on workout duration and sweat loss."},
+        {"name": "Pregnant Women", "intake": "3000 ml", "target": 3000, "icon": "", "filenames": ["pregnant.png", "AquaSip App Prototype (8).png"], "desc": "Supports maternal blood volume expansion, amniotic fluid & lactation."},
+        {"name": "Fever", "intake": "3000 ml", "target": 3000, "icon": "", "filenames": ["fever.png", "AquaSip App Prototype (7).png"], "desc": "Compensates for hyperthermic fluid loss from high body temperature."},
+    ]
+
+    if customizing is not None:
+        if st.button("← Back to Health Conditions", key="back_to_disease_list"):
+            st.session_state.customizing_condition = None
+            st.rerun()
+
+        cond_info = next((item for item in disease_options if item["name"] == customizing), disease_options[0])
+
+        st.markdown(
+            f"""
+            <div class="app-card" style="background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%) !important; color: #FFFFFF !important; padding: 18px !important; margin-bottom: 16px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="font-size: 36px;">{cond_info['icon']}</div>
+                    <div>
+                        <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #FFFFFF !important;">Customize {cond_info['name']} Goal</h3>
+                        <p style="margin: 4px 0 0 0; font-size: 12px; opacity: 0.9; color: #DBEAFE !important;">{cond_info['desc']}</p>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown("<h4 style='font-size: 14px; font-weight: 700; color: #0F172A !important;'>1. Personal Body Metrics & BMI Calculator</h4>", unsafe_allow_html=True)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            weight = st.number_input("Weight (kg)", min_value=20.0, max_value=250.0, value=65.0, step=0.5, key="bmi_weight")
+            height = st.number_input("Height (cm)", min_value=100.0, max_value=230.0, value=170.0, step=1.0, key="bmi_height")
+        with c2:
+            age = st.number_input("Age (years)", min_value=5, max_value=120, value=25, step=1, key="bmi_age")
+            gender = st.selectbox("Gender", ["Male", "Female"], key="bmi_gender")
+
+        height_m = height / 100.0
+        bmi = weight / (height_m ** 2) if height_m > 0 else 0
+        
+        if bmi < 18.5:
+            bmi_cat = "Underweight"
+            bmi_color = "#3B82F6"
+        elif 18.5 <= bmi < 25.0:
+            bmi_cat = "Normal Weight"
+            bmi_color = "#10B981"
+        elif 25.0 <= bmi < 30.0:
+            bmi_cat = "Overweight"
+            bmi_color = "#F59E0B"
+        else:
+            bmi_cat = "Obese"
+            bmi_color = "#EF4444"
+
+        base_ml_per_kg = 30.0 if age >= 65 else 35.0
+        base_fluid = weight * base_ml_per_kg
+
+        st.markdown(
+            f"""
+            <div style="background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 12px; padding: 12px 16px; margin: 10px 0 16px 0; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="font-size: 11px; font-weight: 700; color: #64748B !important; text-transform: uppercase;">Body Mass Index (BMI)</div>
+                    <div style="font-size: 18px; font-weight: 800; color: #0F172A !important;">{bmi:.1f} <span style="font-size: 12px; font-weight: 700; color: {bmi_color} !important; background: rgba(0,0,0,0.05); padding: 2px 8px; border-radius: 6px;">{bmi_cat}</span></div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 11px; font-weight: 700; color: #64748B !important; text-transform: uppercase;">Standard Body Baseline</div>
+                    <div style="font-size: 18px; font-weight: 800; color: #2563EB !important;">{int(round(base_fluid))} ml/day</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown(f"<h4 style='font-size: 14px; font-weight: 700; color: #0F172A !important;'>2. {customizing} Condition Modifiers</h4>", unsafe_allow_html=True)
+        
+        calculated_goal = base_fluid
+        reason_notes = [f"Baseline for {weight:.1f}kg body weight ({base_ml_per_kg:.0f} ml/kg): {int(base_fluid)} ml"]
+
+        if customizing == "Default":
+            act = st.selectbox("Daily Activity Level", ["Sedentary (Office/Rest)", "Light (Walking/Light tasks)", "Moderate (Active/Exercise)", "Intense (Manual labor/Heavy training)"], key="custom_def_act")
+            clim = st.selectbox("Environment / Climate", ["Normal Indoor / Moderate", "Hot & Humid", "Air-Conditioned Office"], key="custom_def_clim")
+            
+            act_add = {"Sedentary (Office/Rest)": 0, "Light (Walking/Light tasks)": 250, "Moderate (Active/Exercise)": 500, "Intense (Manual labor/Heavy training)": 900}[act]
+            clim_add = {"Normal Indoor / Moderate": 0, "Hot & Humid": 350, "Air-Conditioned Office": -100}[clim]
+            
+            calculated_goal = base_fluid + act_add + clim_add
+            if act_add != 0: reason_notes.append(f"Activity adjustment: {act_add:+} ml")
+            if clim_add != 0: reason_notes.append(f"Climate adjustment: {clim_add:+} ml")
+
+        elif customizing == "Heart Failure":
+            severity = st.radio("Heart Failure Severity Grade", ["Stage A/B (Mild - Mild Restriction)", "Stage C (Moderate - Strict Restriction)", "Stage D (Severe / Advanced - Very Strict)"], key="custom_hf_sev")
+            custom_limit = st.slider("Doctor's Specific Fluid Limit (ml)", min_value=1000, max_value=2200, value=1500 if "Moderate" in severity else (1800 if "Mild" in severity else 1200), step=50, key="custom_hf_limit")
+            
+            calculated_goal = custom_limit
+            reason_notes.append(f"Capped strictly to {custom_limit} ml to avoid fluid overload & dyspnea.")
+
+        elif customizing == "Kidney Failure":
+            dialysis = st.selectbox("Kidney Condition / Dialysis Status", ["Not on Dialysis (CKD Stage 3-5)", "Hemodialysis (HD)", "Peritoneal Dialysis (PD)"], key="custom_kf_dialysis")
+            urine_out = st.number_input("Average Daily Urine Output (ml)", min_value=0, max_value=2000, value=500, step=50, key="custom_kf_urine")
+            
+            if "Not on Dialysis" in dialysis:
+                calculated_goal = min(base_fluid, 1500)
+                reason_notes.append("CKD non-dialysis fluid management: capped at 1500 ml max.")
+            else:
+                calculated_goal = urine_out + 500
+                reason_notes.append(f"Clinical formula: Urine output ({urine_out} ml) + 500 ml allowance = {calculated_goal} ml")
+
+        elif customizing == "Diabetes":
+            glucose_control = st.selectbox("Average Blood Glucose Level", ["Well Controlled (< 7.0 mmol/L)", "Slightly Elevated (7.0 - 10.0 mmol/L)", "High / Uncontrolled (> 10.0 mmol/L)"], key="custom_diab_glu")
+            act_diab = st.selectbox("Daily Activity Level", ["Low", "Moderate", "High"], key="custom_diab_act")
+            
+            glu_pct = 0.0 if "Well" in glucose_control else (0.10 if "Slightly" in glucose_control else 0.20)
+            act_add = 0 if act_diab == "Low" else (300 if act_diab == "Moderate" else 600)
+            
+            calculated_goal = (base_fluid * (1.0 + glu_pct)) + act_add
+            if glu_pct > 0: reason_notes.append(f"Osmotic diuresis adjustment (+{int(glu_pct*100)}%): +{int(base_fluid * glu_pct)} ml")
+            if act_add > 0: reason_notes.append(f"Activity rehydration: +{act_add} ml")
+
+        elif customizing == "Liver Cirrhosis":
+            ascites = st.selectbox("Ascites / Edema (Fluid Retention)", ["None / Mild", "Moderate Ascites", "Severe / Refractory Ascites"], key="custom_lc_ascites")
+            custom_lc_limit = st.slider("Prescribed Fluid Restriction (ml)", min_value=1000, max_value=2000, value=1500 if ascites == "Moderate Ascites" else (1200 if ascites == "Severe / Refractory Ascites" else 1800), step=50, key="custom_lc_limit")
+            
+            calculated_goal = custom_lc_limit
+            reason_notes.append(f"Ascites control cap: strictly {custom_lc_limit} ml/day")
+
+        elif customizing == "Urinary Tract Infection":
+            flush_mode = st.radio("Flush Intensity", ["Standard Flush (+500 ml)", "Aggressive Therapeutic Flush (+1000 ml)"], key="custom_uti_mode")
+            add_val = 500 if "Standard" in flush_mode else 1000
+            
+            calculated_goal = min(3500, base_fluid + add_val)
+            reason_notes.append(f"Bacterial clearance boost: +{add_val} ml above baseline")
+
+        elif customizing == "Athletes":
+            duration = st.slider("Daily Workout / Training Duration (minutes)", min_value=15, max_value=300, value=60, step=15, key="custom_ath_dur")
+            sweat_rate = st.select_slider("Estimated Sweat Rate Intensity", options=["Low Sweat (Light)", "Moderate Sweat", "Heavy Sweat (Drenched)"], value="Moderate Sweat", key="custom_ath_sweat")
+            
+            rate_ml_min = 8 if "Low" in sweat_rate else (12 if "Moderate" in sweat_rate else 18)
+            exercise_water = duration * rate_ml_min
+            
+            calculated_goal = base_fluid + exercise_water
+            reason_notes.append(f"Sweat loss replenishment ({duration} mins × {rate_ml_min} ml/min): +{exercise_water} ml")
+
+        elif customizing == "Pregnant Women":
+            stage = st.selectbox("Pregnancy Stage / Postpartum", ["1st Trimester (+100 ml)", "2nd Trimester (+300 ml)", "3rd Trimester (+450 ml)", "Lactating / Breastfeeding (+700 ml)"], key="custom_preg_stage")
+            add_preg = 100 if "1st" in stage else (300 if "2nd" in stage else (450 if "3rd" in stage else 700))
+            
+            calculated_goal = base_fluid + add_preg
+            reason_notes.append(f"Maternal & fetal fluid expansion: +{add_preg} ml")
+
+        elif customizing == "Fever":
+            temp = st.slider("Current Body Temperature (°C)", min_value=37.0, max_value=41.0, value=38.5, step=0.1, key="custom_fever_temp")
+            temp_diff = max(0.0, temp - 37.0)
+            fever_loss = temp_diff * 350.0
+            
+            calculated_goal = base_fluid + fever_loss
+            reason_notes.append(f"Hyperthermic insensate loss (+{temp_diff:.1f}°C): +{int(fever_loss)} ml")
+
+        final_goal = int(round(calculated_goal / 50.0) * 50)
+
+        st.markdown(
+            f"""
+            <div class="app-card" style="border: 2px solid #2563EB !important; background: #EFF6FF !important; padding: 16px !important; margin-top: 16px;">
+                <div style="font-size: 12px; font-weight: 700; color: #1E40AF !important; text-transform: uppercase;">Calculated Goal Target</div>
+                <div style="font-size: 28px; font-weight: 800; color: #2563EB !important; margin: 2px 0;">{final_goal} ml / day</div>
+                <div style="font-size: 12px; font-weight: 600; color: #334155 !important;">
+                    {'<br>'.join(['• ' + n for n in reason_notes])}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button(f"Apply Custom {customizing} Goal ({final_goal} ml)", type="primary", use_container_width=True, key="apply_custom_goal_btn"):
+            st.session_state.goal = final_goal
+            st.session_state.condition = customizing
+            st.session_state.setting_goal_input = final_goal
+            st.session_state.adaptive_base = None
+            st.session_state.customizing_condition = None
+            st.session_state.sub_page = None
+            st.rerun()
+
+    else:
+        st.markdown(
+            f"""
+            <div style="text-align: center; margin-bottom: 16px;">
+                <h3 style="font-size: 19px; font-weight: 800; color: #0F172A !important; margin-bottom: 6px; letter-spacing: -0.02em;">
+                    {t['change_goal_q']}
+                </h3>
+                <p style="font-size: 12px; color: #64748B !important; font-weight: 500; margin: 0; line-height: 1.4;">
+                    {t['change_goal_sub']}
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        cols = st.columns(3)
+        for idx, item in enumerate(disease_options):
+            with cols[idx % 3]:
+                img_path = None
+                for fname in item["filenames"]:
+                    p1 = asset_path(fname)
+                    if p1 and os.path.isfile(p1):
+                        img_path = p1
+                        break
+
+                if img_path:
+                    st.image(img_path, use_container_width=True)
+                else:
+                    st.markdown(
+                        f"""
+                        <div style="background: linear-gradient(135deg, #1E3A8A 0%, #1E40AF 100%); border-radius: 16px; padding: 18px 8px; text-align: center; color: #FFFFFF !important; margin-bottom: 6px; min-height: 85px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
+                            <div style="font-size: 32px; margin-bottom: 2px;">{item['icon']}</div>
+                            <div style="font-size: 9px; opacity: 0.85; color: #DBEAFE !important; font-weight: 600;">{item['filenames'][0]}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                st.markdown(
+                    f"""
+                    <div style="text-align: center; margin-bottom: 6px;">
+                        <div style="font-size: 12px; font-weight: 700; color: #0F172A !important; line-height: 1.2;">{item['name']}</div>
+                        <div style="font-size: 11px; font-weight: 600; color: #2563EB !important; margin-top: 2px;">{item['intake']}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                if st.button(
+                    f"Customize",
+                    key=f"btn_cust_disease_{idx}",
+                    use_container_width=True,
+                    type="primary" if st.session_state.condition == item["name"] else "secondary",
+                ):
+                    st.session_state.customizing_condition = item["name"]
+                    st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button(t["back_to_settings"], use_container_width=True):
+            st.session_state.sub_page = None
+            st.session_state.customizing_condition = None
+            st.rerun()
+
+
+# ==========================================
+# 17. SETTINGS SCREEN
+# ==========================================
+def render_settings():
+    t = get_t()
+    if st.session_state.sub_page == "Disease Goal":
+        render_disease_goal()
+        return
+
+    st.markdown(
+        f"<h4 style='font-size: 15px; font-weight: 700; color: #0F172A !important;'>{t['hydration_goal']}</h4>",
+        unsafe_allow_html=True,
+    )
+
+    new_goal = st.number_input(
+        t["goal_target_label"],
+        value=st.session_state.goal,
+        step=100,
+        key="setting_goal_input",
+    )
+    if new_goal != st.session_state.goal:
+        st.session_state.goal = new_goal
+        st.session_state.adaptive_base = None
+
+    if st.button(t["adjust_disease"], use_container_width=True):
+        st.session_state.sub_page = "Disease Goal"
+        st.rerun()
+
+    cond_note = " (fluid limit - AI will never raise it)" if _is_restricted() else ""
+    st.caption(f"{t['health_setting']}: {st.session_state.condition}{cond_note}")
+    locations = getattr(smart, "MALAYSIA_LOCATIONS", {"Bangi": (2.9264, 101.7820)})
+    st.selectbox(t["your_location"], list(locations), key="location")
+
+    st.markdown(
+        f"<h4 style='margin-top: 22px; font-size: 15px; font-weight: 700; color: #0F172A !important;'>{t['reminders_sound']}</h4>",
+        unsafe_allow_html=True,
+    )
+
+    if st.session_state.alarm_success_msg:
+        st.success(st.session_state.alarm_success_msg)
+
+    render_smart_schedule()
+
+    with st.expander(t["add_custom_alarm"], expanded=True if not st.session_state.reminders else False):
+
+        default_q_time = get_nearest_quarter_time()
+        standard_times = generate_standard_quarter_times()
+
+        st.markdown(
+            f"<div style='font-size: 13px; font-weight: 700; color: #0F172A !important; margin-bottom: 4px;'>{t['alarm_time']}</div>",
+            unsafe_allow_html=True,
+        )
+
+        col_select, col_type = st.columns([1.1, 1.3])
+
+        with col_select:
+            preset_idx = standard_times.index(default_q_time) if default_q_time in standard_times else 0
+            selected_preset_time = st.selectbox(
+                t["pick_standard_time"],
+                options=standard_times,
+                index=preset_idx,
+                key="unified_time_selectbox",
+            )
+
+        with col_type:
+            typed_time_val = st.text_input(
+                t["or_type_time"],
+                value=selected_preset_time,
+                placeholder="e.g. 03:47 PM or 15:47",
+                key="unified_time_text_input",
+            )
+
+        is_valid_time, time_err_msg, formatted_time = validate_and_format_time(typed_time_val)
+
+        if not is_valid_time:
+            st.error(time_err_msg)
+
+        st.markdown("<hr style='border:none; border-top:1px solid #E2E8F0; margin:14px 0;'>", unsafe_allow_html=True)
+
+        st.markdown(
+            f"<div style='font-size: 13px; font-weight: 700; color: #0F172A !important; margin-bottom: 8px;'>{t['active_days']}</div>",
+            unsafe_allow_html=True,
+        )
+
+        pr_row1_col1, pr_row1_col2 = st.columns(2)
+        with pr_row1_col1:
+            st.button(t["all_days"], key="btn_preset_all", on_click=set_days_all, use_container_width=True)
+        with pr_row1_col2:
+            st.button(t["weekdays"], key="btn_preset_weekdays", on_click=set_days_weekdays, use_container_width=True)
+
+        pr_row2_col1, pr_row2_col2 = st.columns(2)
+        with pr_row2_col1:
+            st.button(t["weekends"], key="btn_preset_weekends", on_click=set_days_weekends, use_container_width=True)
+        with pr_row2_col2:
+            st.button(t["clear"], key="btn_preset_clear", on_click=set_days_clear, use_container_width=True)
+
+        st.markdown("<div style='margin-bottom: 6px;'></div>", unsafe_allow_html=True)
+
+        day_cols = st.columns(7, gap="small")
+        selected_days = []
+
+        for idx, d_name in enumerate(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]):
+            cb_key = f"cb_day_{d_name}"
+            with day_cols[idx]:
+                checked = st.checkbox(
+                    d_name,
+                    key=cb_key,
+                )
+                if checked:
+                    selected_days.append(d_name)
+
+        st.markdown("<hr style='border:none; border-top:1px solid #E2E8F0; margin:14px 0;'>", unsafe_allow_html=True)
+
+        st.markdown(
+            f"<div style='font-size: 13px; font-weight: 700; color: #0F172A !important; margin-bottom: 6px;'>{t['sound_snooze_options']}</div>",
+            unsafe_allow_html=True,
+        )
+
+        sound_choices = [
+            "Aqua Chime",
+            "Zen Bell",
+            "Digital Beep",
+            "Marimba Rise",
+            "Custom Audio Upload",
+        ]
+
+        selected_sound = st.selectbox(
+            t["select_sound_preset"],
+            sound_choices,
+            index=0,
+            key="alarm_sound_preset_selectbox",
+        )
+
+        snooze_options = [5, 10, 15, 20, 30]
+        curr_snooze_idx = snooze_options.index(st.session_state.snooze_duration) if st.session_state.snooze_duration in snooze_options else 0
+        selected_snooze = st.selectbox(
+            t["snooze_duration"],
+            snooze_options,
+            format_func=lambda x: f"{x} Minutes",
+            index=curr_snooze_idx,
+            key="snooze_duration_selectbox",
+        )
+        st.session_state.snooze_duration = selected_snooze
+
+        if selected_sound == "Custom Audio Upload":
+            uploaded_audio_file = st.file_uploader(
+                "Upload Custom Sound File (.mp3, .wav, .ogg):",
+                type=["mp3", "wav", "ogg"],
+                key="audio_file_uploader_widget",
+            )
+            if uploaded_audio_file is not None:
+                audio_bytes = uploaded_audio_file.read()
+                mime = uploaded_audio_file.type or "audio/mp3"
+                encoded = base64.b64encode(audio_bytes).decode()
+                st.session_state.custom_sound_b64 = f"data:{mime};base64,{encoded}"
+                st.success("Custom audio file loaded successfully!")
+
+        st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
+
+        c_save, c_test = st.columns([2, 1])
+        with c_save:
+            if st.button(
+                f"{t['save_alarm']} ({formatted_time if is_valid_time else 'Invalid'})",
+                type="primary",
+                use_container_width=True,
+            ):
+                if not is_valid_time:
+                    st.session_state.alarm_success_msg = time_err_msg
+                elif not selected_days:
+                    st.session_state.alarm_success_msg = (
+                        "Please select at least one active day for the alarm!"
+                    )
+                else:
+                    new_alarm_entry = {
+                        "time": formatted_time,
+                        "days": selected_days,
+                        "sound": selected_sound,
+                    }
+                    if new_alarm_entry not in st.session_state.reminders:
+                        st.session_state.reminders.append(new_alarm_entry)
+                        day_str = format_alarm_days(selected_days)
+                        st.session_state.alarm_success_msg = (
+                            f"Alarm set for {formatted_time} ({day_str}) [{selected_sound}]!"
+                        )
+                    else:
+                        st.session_state.alarm_success_msg = (
+                            f"Alarm for {formatted_time} is already set."
+                        )
+                st.rerun()
+
+        with c_test:
+            if st.button(t["test_sound"], use_container_width=True):
+                escaped_sound = json.dumps(selected_sound)
+                test_sound_js = f"""
+                <script>
+                (function() {{
+                    if (window.parent && typeof window.parent.playAquaSipAlarmSound === 'function') {{
+                        window.parent.playAquaSipAlarmSound({escaped_sound});
+                    }}
+                }})();
+                </script>
+                """
+                components.html(test_sound_js, height=0, width=0)
+
+    if not st.session_state.reminders:
+        st.info(t["no_active_alarms"])
+    else:
+        for idx, alarm in enumerate(list(st.session_state.reminders)):
+            if isinstance(alarm, str):
+                alarm_time = alarm
+                alarm_days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+                alarm_sound = " Aqua Chime"
+            else:
+                alarm_time = alarm.get("time", "")
+                alarm_days = alarm.get("days", ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"])
+                alarm_sound = alarm.get("sound", " Aqua Chime")
+
+            day_badge = format_alarm_days(alarm_days)
+
+            col_info, col_del = st.columns([3, 1])
+            with col_info:
+                st.markdown(
+                    f"""
+                    <div class="app-card" style="margin-bottom: 8px; padding: 12px 16px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div style="font-weight: 800; font-size: 15px; color: #0F172A !important;"> ⏰ {alarm_time}</div>
+                            <span style="font-size: 11px; font-weight:700; color:#2563EB;">{alarm_sound}</span>
+                        </div>
+                        <div style="margin-top: 6px;">
+                            <span style="font-size: 11px; font-weight: 700; background: #E0F2FE; color: #0369A1 !important; padding: 3px 8px; border-radius: 6px;">{day_badge}</span>
+                        </div>
+                    </div>
+                """,
+                    unsafe_allow_html=True,
+                )
+            with col_del:
+                if st.button(
+                    t["delete"], key=f"del_alarm_{idx}", use_container_width=True
+                ):
+                    st.session_state.reminders.pop(idx)
+                    st.session_state.alarm_success_msg = None
+                    st.rerun()
+
+
+# ==========================================
+# 18. MAIN ROUTER
+# ==========================================
+def main():
+    if not st.session_state.logged_in:
+        render_auth()
+    else:
+        sync_water_logs()
+        user_uid = st.session_state.user.get("uid", "")
+        allowed, reason = check_user_access_detail(user_uid)
+        if not allowed:
+            st.session_state.logged_in = False
+            if reason.startswith("expired:"):
+                st.session_state.auth_notice = (
+                    f"🔒 This account's access period ended on {reason.split(':', 1)[1]}. "
+                    "Ask the app admin to extend it in Firebase, or sign in with the admin account."
+                )
+            else:
+                st.session_state.auth_notice = (
+                    "🔒 No access record was found for this account. Ask the app admin to add it in Firebase."
+                )
+            st.rerun()
+        st.session_state.auth_notice = None
+        if reason == "network":
+            st.caption("⚠️ Offline: couldn't verify your access just now, continuing anyway.")
+
+        total_drank = sum(
+            [log["amount"] for log in st.session_state.water_logs]
+        )
+        pct = min(100, int((total_drank / st.session_state.goal) * 100))
+
+        render_draggable_avatar(pct)
+        render_realtime_timer_and_alarm(
+            st.session_state.reminders,
+            st.session_state.custom_sound_b64,
+            st.session_state.snooze_duration,
+        )
+        selected_page = render_app_header()
+
+        if selected_page == "Home":
+            render_home()
+        elif selected_page == "Coach":
+            render_coach()
+        elif selected_page == "History":
+            render_history()
+        elif selected_page == "Shop":
+            render_shop()
+        elif selected_page == "Setting":
+            render_settings()
+
+    st.markdown(
+        "<p style='text-align: center; font-size: 11px; color: #64748B !important; margin-top: 24px; font-weight: 600;'>"
+        "</p>",
+        unsafe_allow_html=True,
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -13,6 +13,7 @@ import streamlit.components.v1 as components
 import html as _html
 
 import aquasip_smart as smart
+import bottle_sync  # AquaPod bottle: live card + automatic drink logging
 
 
 # ==========================================
@@ -2947,9 +2948,9 @@ def render_coach():
     local = _local_ai_model()
     err = st.session_state.get("coach_llm_error")
     if key:
-        mode = "Mode: Gemini AI + your data"
+        mode = "Mode: Gemini AI + data"
     elif local:
-        mode = f"Mode: on-device AI ({local}) + your data, works without internet"
+        mode = f"Mode: on-device AI ({local}) + data, works without internet"
     else:
         mode = "Mode: offline smart coach"
     if err:
@@ -3243,6 +3244,9 @@ def render_home():
     elif st.session_state.sub_page == "Profile":
         render_profile()
         return
+
+    # AquaPod bottle: shows the bottle card and adds the bottle's drinks to today's log
+    bottle_sync.render_bottle(get_history, _save_history_to_disk, _user_key())
 
     # User Profile Bar / Greeting at Home
     user_name = st.session_state.user.get("name", "User")

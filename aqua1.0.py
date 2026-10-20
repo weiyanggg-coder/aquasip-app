@@ -428,19 +428,32 @@ logo_path = asset_path("logo.png")
 
 def get_image_base64(path):
     try:
-        with open(path, "rb") as img_file:
-            return base64.b64encode(img_file.read()).decode()
+        if path and os.path.isfile(path):
+            with open(path, "rb") as img_file:
+                return base64.b64encode(img_file.read()).decode()
     except Exception:
-        return ""
+        pass
+    return ""
 
 
 logo_b64 = get_image_base64(logo_path)
+
+# Fallback vector SVG logo when logo.png is missing or unreadable
+DEFAULT_LOGO_SVG_B64 = "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJkcm9wR3JhZCIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+PHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzM4QkRGOCIgLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMyNTYzRUIiIC8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHBhdGggZD0iTTUwIDEwIEM1MCAxMCAyMCA1MCAyMCA3MCBDMjAgODYuNSAzMy41IDEwMCA1MCAxMDAgQzY2LjUgMTAwIDgwIDg2LjUgODAgNzAgQzgwIDUwIDUwIDEwIDUwIDEwIFoiIGZpbGw9InVybCgjZHJvcEdyYWQpIi8+PC9zdmc+"
+
+def get_logo_img_src():
+    if logo_b64:
+        return f"data:image/png;base64,{logo_b64}"
+    return f"data:image/svg+xml;base64,{DEFAULT_LOGO_SVG_B64}"
 
 # ==========================================
 # 2. PAGE CONFIGURATION
 # ==========================================
 try:
-    app_icon = Image.open(logo_path)
+    if logo_path and os.path.isfile(logo_path):
+        app_icon = Image.open(logo_path)
+    else:
+        app_icon = "💧"
 except Exception:
     app_icon = "💧"
 
@@ -2943,9 +2956,9 @@ def render_coach():
     local = _local_ai_model()
     err = st.session_state.get("coach_llm_error")
     if key:
-        mode = "Mode: Gemini AI + your data"
+        mode = "Mode: Gemini AI + data"
     elif local:
-        mode = f"Mode: on-device AI ({local}) + your data, works without internet"
+        mode = f"Mode: on-device AI ({local}) + data, works without internet"
     else:
         mode = "Mode: offline smart coach"
     if err:
@@ -2969,7 +2982,7 @@ def render_auth():
     st.markdown(
         f"""
         <div style="text-align: center; padding: 12px 0 16px 0;">
-            <img src="data:image/png;base64,{logo_b64}" style="width: 64px; height: 64px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 6px 12px rgba(37,99,235,0.25));" />
+            <img src="{get_logo_img_src()}" style="width: 64px; height: 64px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 6px 12px rgba(37,99,235,0.25));" />
             <h2 style="background: linear-gradient(135deg, #2563EB 0%, #0284C7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; font-size: 28px; margin: 0; letter-spacing: -0.02em;">AquaSip</h2>
             <p style="font-size: 13px; color: #64748B !important; margin-top: 4px; font-weight: 500;">{t['subtitle']}</p>
         </div>
@@ -3073,7 +3086,7 @@ def render_app_header():
         st.markdown(
             f"""
             <div style="display: flex; align-items: center; gap: 10px;">
-                <img src="data:image/png;base64,{logo_b64}" style="width: 34px; height: 34px; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(37,99,235,0.2));" />
+                <img src="{get_logo_img_src()}" style="width: 34px; height: 34px; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(37,99,235,0.2));" />
                 <h3 style="background: linear-gradient(135deg, #2563EB 0%, #0284C7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin:0; font-weight:800; font-size: 22px; letter-spacing: -0.02em;">AquaSip</h3>
             </div>
         """,
@@ -3135,7 +3148,7 @@ def render_profile():
     )
 
     pic_b64 = st.session_state.user.get("profile_pic_b64", "")
-    if pic_b64:
+    if pic_b64 and pic_b64.startswith("data:image"):
         img_html = f'<img src="{pic_b64}" style="width: 88px; height: 88px; border-radius: 50%; object-fit: cover; border: 3px solid #2563EB; box-shadow: 0 4px 14px rgba(37,99,235,0.25);" />'
     else:
         img_html = '<div style="width: 88px; height: 88px; border-radius: 50%; background: #E0F2FE; color: #2563EB; display: flex; align-items: center; justify-content: center; font-size: 40px; border: 3px solid #2563EB; margin: 0 auto;">👤</div>'
@@ -3240,7 +3253,7 @@ def render_home():
 
     c_user_info, c_user_btn = st.columns([2.5, 1.2])
     with c_user_info:
-        if pic_b64:
+        if pic_b64 and pic_b64.startswith("data:image"):
             avatar_html = f'<img src="{pic_b64}" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid #2563EB;" />'
         else:
             avatar_html = '<div style="width: 44px; height: 44px; border-radius: 50%; background: #E0F2FE; color: #2563EB; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 2px solid #2563EB; font-weight: 800;">👤</div>'
@@ -3408,18 +3421,22 @@ def render_switch_cup():
                     img_path = p1
                     break
 
+            img_rendered = False
             if img_path:
                 img_b64 = get_image_base64(img_path)
-                st.markdown(
-                    f"""
-                    <div class="app-card" style="text-align: center; padding: 12px 8px; margin-bottom: 8px;">
-                        <img src="data:image/png;base64,{img_b64}" style="height: 48px; object-fit: contain; margin-bottom: 4px;" />
-                        <div style="font-size: 13px; font-weight: 700; margin-top: 2px;">{cup['name']}</div>
-                    </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-            else:
+                if img_b64:
+                    st.markdown(
+                        f"""
+                        <div class="app-card" style="text-align: center; padding: 12px 8px; margin-bottom: 8px;">
+                            <img src="data:image/png;base64,{img_b64}" style="height: 48px; object-fit: contain; margin-bottom: 4px;" />
+                            <div style="font-size: 13px; font-weight: 700; margin-top: 2px;">{cup['name']}</div>
+                        </div>
+                    """,
+                        unsafe_allow_html=True,
+                    )
+                    img_rendered = True
+
+            if not img_rendered:
                 st.markdown(
                     f"""
                     <div class="app-card" style="text-align: center; padding: 14px 8px; margin-bottom: 8px;">
@@ -3643,10 +3660,16 @@ def render_shop():
 
         with col_img:
             prod_img_path = asset_path(prod.get("image_filename", ""))
+            img_loaded = False
 
             if prod_img_path and os.path.isfile(prod_img_path):
-                st.image(prod_img_path, use_container_width=True)
-            else:
+                try:
+                    st.image(prod_img_path, use_container_width=True)
+                    img_loaded = True
+                except Exception:
+                    img_loaded = False
+
+            if not img_loaded:
                 st.markdown(
                     """
                     <div style="background-color: #F1F5F9; border-radius: 14px; height: 110px; display: flex; align-items: center; justify-content: center; font-size: 38px;">
@@ -3728,11 +3751,11 @@ def render_cart():
         subtotal += item_total
 
         prod_img_path = asset_path(item.get("image_filename", ""))
+        img_html = '<span style="font-size: 30px;">🧴</span>'
         if prod_img_path and os.path.isfile(prod_img_path):
             img_b64 = get_image_base64(prod_img_path)
-            img_html = f'<img src="data:image/png;base64,{img_b64}" style="height: 48px; width: 48px; object-fit: contain; border-radius: 8px;" />'
-        else:
-            img_html = '<span style="font-size: 30px;">🧴</span>'
+            if img_b64:
+                img_html = f'<img src="data:image/png;base64,{img_b64}" style="height: 48px; width: 48px; object-fit: contain; border-radius: 8px;" />'
 
         st.markdown(
             f"""
@@ -3927,15 +3950,15 @@ def render_disease_goal():
     customizing = st.session_state.get("customizing_condition", None)
 
     disease_options = [
-        {"name": "Default", "intake": "2000 ml", "target": 2000, "icon": "", "filenames": ["default.png", "AquaSip App Prototype.png"], "desc": "Standard daily hydration based on BMI, activity level, and climate."},
-        {"name": "Heart Failure", "intake": "1500 - 2000 ml", "target": 1500, "icon": "", "filenames": ["heart_failure.png", "AquaSip App Prototype (1).png"], "desc": "Strict fluid control to prevent cardiac overload and edema."},
-        {"name": "Kidney Failure", "intake": "1000 - 1500 ml", "target": 1250, "icon": "", "filenames": ["kidney_failure.png", "AquaSip App Prototype (2).png"], "desc": "Tailored based on dialysis status and daily urine output volume."},
-        {"name": "Diabetes", "intake": "1800 ml", "target": 1800, "icon": "", "filenames": ["diabetes.png", "AquaSip App Prototype (3).png"], "desc": "Adjusted for glucose diuresis and metabolic demands."},
-        {"name": "Liver Cirrhosis", "intake": "1500 ml", "target": 1500, "icon": "", "filenames": ["liver_cirrhosis.png", "AquaSip App Prototype (4).png"], "desc": "Fluid restriction management for ascites and fluid retention."},
-        {"name": "Urinary Tract Infection", "intake": "2500 ml", "target": 2500, "icon": "", "filenames": ["uti.png", "AquaSip App Prototype (5).png"], "desc": "Increased fluid intake to help flush urinary bacterial pathogens."},
-        {"name": "Athletes", "intake": "4000 ml", "target": 4000, "icon": "", "filenames": ["athletes.png", "AquaSip App Prototype (6).png"], "desc": "High-volume rehydration based on workout duration and sweat loss."},
-        {"name": "Pregnant Women", "intake": "3000 ml", "target": 3000, "icon": "", "filenames": ["pregnant.png", "AquaSip App Prototype (8).png"], "desc": "Supports maternal blood volume expansion, amniotic fluid & lactation."},
-        {"name": "Fever", "intake": "3000 ml", "target": 3000, "icon": "", "filenames": ["fever.png", "AquaSip App Prototype (7).png"], "desc": "Compensates for hyperthermic fluid loss from high body temperature."},
+        {"name": "Default", "intake": "2000 ml", "target": 2000, "icon": "💧", "filenames": ["default.png", "AquaSip App Prototype.png"], "desc": "Standard daily hydration based on BMI, activity level, and climate."},
+        {"name": "Heart Failure", "intake": "1500 - 2000 ml", "target": 1500, "icon": "🫀", "filenames": ["heart_failure.png", "AquaSip App Prototype (1).png"], "desc": "Strict fluid control to prevent cardiac overload and edema."},
+        {"name": "Kidney Failure", "intake": "1000 - 1500 ml", "target": 1250, "icon": "🩺", "filenames": ["kidney_failure.png", "AquaSip App Prototype (2).png"], "desc": "Tailored based on dialysis status and daily urine output volume."},
+        {"name": "Diabetes", "intake": "1800 ml", "target": 1800, "icon": "🩸", "filenames": ["diabetes.png", "AquaSip App Prototype (3).png"], "desc": "Adjusted for glucose diuresis and metabolic demands."},
+        {"name": "Liver Cirrhosis", "intake": "1500 ml", "target": 1500, "icon": "🏥", "filenames": ["liver_cirrhosis.png", "AquaSip App Prototype (4).png"], "desc": "Fluid restriction management for ascites and fluid retention."},
+        {"name": "Urinary Tract Infection", "intake": "2500 ml", "target": 2500, "icon": "🚽", "filenames": ["uti.png", "AquaSip App Prototype (5).png"], "desc": "Increased fluid intake to help flush urinary bacterial pathogens."},
+        {"name": "Athletes", "intake": "4000 ml", "target": 4000, "icon": "🏃", "filenames": ["athletes.png", "AquaSip App Prototype (6).png"], "desc": "High-volume rehydration based on workout duration and sweat loss."},
+        {"name": "Pregnant Women", "intake": "3000 ml", "target": 3000, "icon": "🤰", "filenames": ["pregnant.png", "AquaSip App Prototype (8).png"], "desc": "Supports maternal blood volume expansion, amniotic fluid & lactation."},
+        {"name": "Fever", "intake": "3000 ml", "target": 3000, "icon": "🤒", "filenames": ["fever.png", "AquaSip App Prototype (7).png"], "desc": "Compensates for hyperthermic fluid loss from high body temperature."},
     ]
 
     if customizing is not None:
@@ -4139,14 +4162,20 @@ def render_disease_goal():
                         img_path = p1
                         break
 
+                img_rendered = False
                 if img_path:
-                    st.image(img_path, use_container_width=True)
-                else:
+                    try:
+                        st.image(img_path, use_container_width=True)
+                        img_rendered = True
+                    except Exception:
+                        img_rendered = False
+
+                if not img_rendered:
                     st.markdown(
                         f"""
                         <div style="background: linear-gradient(135deg, #1E3A8A 0%, #1E40AF 100%); border-radius: 16px; padding: 18px 8px; text-align: center; color: #FFFFFF !important; margin-bottom: 6px; min-height: 85px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(30, 58, 138, 0.15);">
-                            <div style="font-size: 32px; margin-bottom: 2px;">{item['icon']}</div>
-                            <div style="font-size: 9px; opacity: 0.85; color: #DBEAFE !important; font-weight: 600;">{item['filenames'][0]}</div>
+                            <div style="font-size: 32px; margin-bottom: 2px;">{item['icon'] if item['icon'] else '🩺'}</div>
+                            <div style="font-size: 11px; opacity: 0.85; color: #DBEAFE !important; font-weight: 600;">{item['name']}</div>
                         </div>
                         """,
                         unsafe_allow_html=True,
